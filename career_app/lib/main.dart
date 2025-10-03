@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
-
-import 'result_view.dart'; // result_view.dart ile aynı klasördeyse bu import yeterli
+import 'job_results_view.dart';
+import 'result_view.dart';
 
 void main() {
   runApp(const MyApp());
@@ -157,6 +157,54 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _matchText(String text) async {
+    // küçük input kontrolü
+    if (text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter some text to match.')),
+      );
+      return;
+    }
+
+    setState(() => _status = 'Searching jobs...');
+
+    try {
+      final uri = Uri.parse('$backendBase/match_text');
+      final res = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'text': text,
+              'top_k': 20,
+            }), // top_k isteğe göre değişir
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final rawResults = (body['results'] as List<dynamic>?) ?? [];
+        final results = rawResults
+            .map((e) => JobResult.fromMap(e as Map))
+            .toList();
+
+        setState(() => _status = 'Found ${results.length} jobs');
+
+        // Yeni sayfaya yönlendir
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => JobResultsView(results: results, query: text),
+          ),
+        );
+      } else {
+        setState(() => _status = 'Server error: ${res.statusCode}');
+      }
+    } catch (e) {
+      setState(() => _status = 'Error: $e');
+    }
+  }
+
   void openManualSkillsDialog() {
     showDialog(
       context: context,
@@ -219,7 +267,47 @@ class _HomePageState extends State<HomePage> {
               icon: const Icon(Icons.edit),
               label: const Text('Manuel Beceri Gir & Analiz Et'),
             ),
+
             const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () {
+                // Açılan dialog ile kullanıcı serbest metin girsin (CV snippet veya manuel açıklama)
+                showDialog(
+                  context: context,
+                  builder: (ctx) {
+                    final controller = TextEditingController();
+                    return AlertDialog(
+                      title: const Text('Enter text to match jobs'),
+                      content: TextField(
+                        controller: controller,
+                        minLines: 3,
+                        maxLines: 6,
+                        decoration: const InputDecoration(
+                          hintText:
+                              'e.g. experienced python developer with sql and pandas',
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('Cancel'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () {
+                            final txt = controller.text.trim();
+                            Navigator.of(ctx).pop();
+                            _matchText(txt);
+                          },
+                          child: const Text('Find Jobs'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+              icon: const Icon(Icons.search),
+              label: const Text('Find Jobs (from text)'),
+            ),
             Text('Durum: $_status'),
             const SizedBox(height: 12),
             Expanded(
