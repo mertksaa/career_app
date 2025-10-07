@@ -1,0 +1,12 @@
+[
+  {"name": "Data Analyst", "skills": ["python", "sql", "pandas", "tableau", "excel"]},
+  {"name": "Backend Developer", "skills": ["python", "django", "flask", "rest", "sql"]},
+  {"name": "Frontend Developer", "skills": ["javascript", "react", "html", "css"]},
+  {"name": "Machine Learning Engineer", "skills": ["python", "numpy", "pandas", "scikit-learn", "tensorflow"]},
+  {"name": "DevOps Engineer", "skills": ["docker", "kubernetes", "ci/cd", "aws", "linux"]},
+  {"name": "Software Tester", "skills": ["testing", "selenium", "junit", "manual testing"]},
+  {"name": "Mobile Developer", "skills": ["flutter", "dart", "android", "ios"]},
+  {"name": "Product Manager", "skills": ["roadmap", "communication", "stakeholder management", "prioritization"]},
+  {"name": "Data Engineer", "skills": ["sql", "spark", "airflow", "python"]},
+  {"name": "UI/UX Designer", "skills": ["figma", "prototyping", "user research", "wireframing"]}
+]
