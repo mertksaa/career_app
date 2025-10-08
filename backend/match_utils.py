@@ -1,90 +1,99 @@
-# match_utils.py
+# backend/match_utils.py
+
 import sqlite3
+import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer
 
-DB = "career.db"
-TABLE = "job_postings"
+# NLTK veri setlerini indir (sadece ilk çalıştırmada gerekli)
+try:
+    stopwords.words('english')
+except LookupError:
+    print("Downloading NLTK stopwords...")
+    nltk.download('stopwords')
 
-# olası sütun isimleri için alternatif listeler
-POSSIBLE_TITLE_COLS = ["title", "job_title", "position", "name"]
-POSSIBLE_COMPANY_COLS = ["company", "company_profile", "employer", "company_name"]
-POSSIBLE_LOCATION_COLS = ["location", "city", "area"]
-POSSIBLE_TEXT_COLS = ["normalized_text", "description", "requirements", "job_description", "detail"]
+# --- Veritabanı Yardımcı Fonksiyonu ---
+DB_PATH = 'career.db'
 
-def get_table_columns(conn, table_name):
-    cur = conn.cursor()
-    cur.execute(f"PRAGMA table_info({table_name})")
-    cols = [row[1] for row in cur.fetchall()]  # row[1] is column name
-    return cols
+def get_db_conn():
+    """Veritabanı bağlantısı oluşturur ve döndürür."""
+    conn = sqlite3.connect(DB_PATH)
+    return conn
 
-def choose_column(available_cols, candidates):
-    for c in candidates:
-        if c in available_cols:
-            return c
-    return None
+# --- Metin İşleme ---
+stemmer = PorterStemmer()
+stop_words = set(stopwords.words('english'))
 
-def load_jobs_from_sqlite(limit=None):
-    conn = sqlite3.connect(DB)
-    available = get_table_columns(conn, TABLE)
-    # pick appropriate columns
-    title_col = choose_column(available, POSSIBLE_TITLE_COLS) or available[0]
-    company_col = choose_column(available, POSSIBLE_COMPANY_COLS) or None
-    location_col = choose_column(available, POSSIBLE_LOCATION_COLS) or None
-    text_col = choose_column(available, POSSIBLE_TEXT_COLS) or None
+def preprocess_text(text):
+    if not isinstance(text, str):
+        return ""
+    text = re.sub(r'<.*?>', '', text)  # HTML etiketlerini kaldır
+    text = re.sub(r'[^a-zA-Z\s]', '', text, re.I|re.A)
+    text = text.lower()
+    text = text.strip()
+    tokens = []
+    for token in text.split():
+        if token not in stop_words:
+            tokens.append(stemmer.stem(token))
+    return " ".join(tokens)
 
-    # Build select list dynamically
-    select_cols = [title_col]
-    if company_col:
-        select_cols.append(company_col)
-    else:
-        select_cols.append("'' as company")
-    if location_col:
-        select_cols.append(location_col)
-    else:
-        select_cols.append("'' as location")
-    if text_col:
-        select_cols.append(text_col)
-    else:
-        select_cols.append("'' as normalized_text")
-
-    q = f"SELECT rowid, {', '.join(select_cols)} FROM {TABLE}"
-    if limit:
-        q += f" LIMIT {int(limit)}"
-
-    cur = conn.cursor()
-    cur.execute(q)
-    rows = cur.fetchall()
+# --- Veri Yükleme ---
+def load_jobs_from_sqlite(limit: int = 10_000):
+    """
+    SQLite veritabanından iş ilanlarını yükler.
+    Sütun adlarının standart olduğu varsayılır: title, description, company, location.
+    """
+    print("Loading jobs from DB...")
+    conn = get_db_conn()
+    # Sonuçları sözlük gibi kullanmak için row_factory ayarı
+    conn.row_factory = sqlite3.Row
+    
+    # Veritabanından belirli sütunları seç
+    query = "SELECT job_id, title, description, company, location FROM jobs LIMIT ?"
+    
+    c = conn.cursor()
+    c.execute(query, (limit,))
+    
+    jobs = [dict(row) for row in c.fetchall()]
     conn.close()
 
-    ids = [r[0] for r in rows]
-    titles = [r[1] for r in rows]
-    companies = [r[2] for r in rows]
-    locations = [r[3] for r in rows]
-    texts = [r[4] if r[4] is not None else "" for r in rows]
+    if not jobs:
+        print("Warning: No jobs found in the database.")
+        return [], []
 
-    jobs = [{"id": ids[i], "title": titles[i], "company": companies[i], "location": locations[i], "text": texts[i]} for i in range(len(rows))]
+    # Metinleri birleştirerek işleme hazır hale getir
+    texts = [
+        f"{j.get('title', '')} {j.get('description', '')} {j.get('company', '')}" 
+        for j in jobs
+    ]
+    
+    print(f"Loaded {len(jobs)} jobs.")
     return jobs, texts
 
-def build_tfidf(texts, max_features=20000):
-    vectorizer = TfidfVectorizer(max_features=max_features, ngram_range=(1,2))
-    tfidf = vectorizer.fit_transform(texts)
-    return vectorizer, tfidf
+# --- Eşleştirme Mantığı ---
+class Matcher:
+    def __init__(self, texts, jobs):
+        self.vectorizer = TfidfVectorizer(preprocessor=preprocess_text)
+        self.job_embeddings = self.vectorizer.fit_transform(texts)
+        self.jobs = jobs
 
-def match_query(query_text, vectorizer, tfidf_matrix, jobs, top_k=10):
-    q_vec = vectorizer.transform([query_text])
-    sims = cosine_similarity(q_vec, tfidf_matrix).flatten()
-    top_idx = np.argsort(-sims)[:top_k]
-    results = []
-    for idx in top_idx:
-        score = float(sims[idx])
-        job = jobs[idx]
-        results.append({
-            "job_id": job["id"],
-            "title": job["title"],
-            "company": job["company"],
-            "location": job["location"],
-            "score": round(score, 4)
-        })
-    return results
+    def find_matches(self, query_text, top_k=5):
+        query_embedding = self.vectorizer.transform([query_text])
+        cosine_similarities = cosine_similarity(query_embedding, self.job_embeddings).flatten()
+        
+        # En iyi N sonucu al
+        related_docs_indices = cosine_similarities.argsort()[:-top_k-1:-1]
+        
+        results = []
+        for i in related_docs_indices:
+            results.append({
+                "job_id": self.jobs[i]['job_id'],
+                "title": self.jobs[i]['title'],
+                "company": self.jobs[i]['company'],
+                "location": self.jobs[i]['location'],
+                "score": round(float(cosine_similarities[i]), 4)
+            })
+        return results
