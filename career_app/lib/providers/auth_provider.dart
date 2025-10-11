@@ -8,14 +8,16 @@ class AuthProvider with ChangeNotifier {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   String? _token;
-  User? _user; // Artık kullanıcı bilgilerini saklayacağız
+  User? _user;
+  bool _hasCv = false;
   bool _isLoading = false;
   String? _errorMessage;
   bool _isAuthCheckComplete = false;
 
   // Getter'lar
   String? get token => _token;
-  User? get user => _user; // User için getter
+  User? get user => _user;
+  bool get hasCv => _hasCv;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get isAuthenticated =>
@@ -24,6 +26,10 @@ class AuthProvider with ChangeNotifier {
 
   AuthProvider() {
     tryAutoLogin();
+  }
+  void setCvStatus(bool hasCv) {
+    _hasCv = hasCv;
+    notifyListeners();
   }
 
   // ... (register fonksiyonu aynı kalıyor) ...

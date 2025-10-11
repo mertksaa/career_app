@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import './job_seeker/job_list_screen.dart';
+import './job_seeker/favorites_screen.dart';
+import './job_seeker/applications_screen.dart';
+import './profile_screen.dart';
 
 class MainNavScreen extends StatefulWidget {
   const MainNavScreen({Key? key}) : super(key: key);
@@ -14,15 +18,16 @@ class _MainNavScreenState extends State<MainNavScreen> {
 
   // Her rol için ekran listeleri
   final List<Widget> _jobSeekerScreens = [
-    const Center(child: Text('İş İlanları Ekranı')), // Placeholder
-    const Center(child: Text('Favoriler Ekranı')), // Placeholder
-    const Center(child: Text('Profil Ekranı')), // Placeholder
+    const JobListScreen(), // Burayı güncelledik!
+    const FavoritesScreen(),
+    const ApplicationsScreen(),
+    const ProfileScreen(),
   ];
 
   final List<Widget> _employerScreens = [
     const Center(child: Text('İlanlarım Ekranı')), // Placeholder
     const Center(child: Text('İlan Oluştur Ekranı')), // Placeholder
-    const Center(child: Text('Profil Ekranı')), // Placeholder
+    const ProfileScreen(),
   ];
 
   void _onItemTapped(int index) {
@@ -54,11 +59,16 @@ class _MainNavScreenState extends State<MainNavScreen> {
               label: 'Favoriler',
             ),
             const BottomNavigationBarItem(
+              icon: Icon(Icons.check_box),
+              label: 'Başvurularım',
+            ), // YENİ SEKME
+            const BottomNavigationBarItem(
               icon: Icon(Icons.person),
               label: 'Profil',
             ),
           ]
         : [
+            // İşveren sekmeleri aynı kalıyor
             const BottomNavigationBarItem(
               icon: Icon(Icons.article),
               label: 'İlanlarım',
@@ -90,6 +100,9 @@ class _MainNavScreenState extends State<MainNavScreen> {
         items: navItems,
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: Theme.of(context).primaryColor,
+        unselectedItemColor: Colors.grey,
       ),
     );
   }

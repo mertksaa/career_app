@@ -164,3 +164,127 @@ async def read_users_me(current_user: dict = Depends(get_current_user)):
     """Giriş yapmış olan kullanıcının bilgilerini döndürür."""
     # Pydantic modeline ihtiyaç duymadan doğrudan dict döndürüyoruz
     return {"id": current_user["id"], "email": current_user["email"], "role": current_user["role"]}
+
+@app.get("/jobs", response_model=List[dict])
+def get_all_jobs(limit: int = 100):
+    """Veritabanındaki tüm iş ilanlarını listeler."""
+    conn = get_db_conn()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    # Şimdilik sadece temel bilgileri alıyoruz, detay sayfası için daha fazlasını alabiliriz.
+    cursor.execute("SELECT job_id, title, company, location FROM jobs ORDER BY job_id DESC LIMIT ?", (limit,))
+    jobs = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jobs
+
+@app.post("/jobs/{job_id}/favorite", status_code=status.HTTP_201_CREATED)
+def toggle_favorite(job_id: int, current_user: dict = Depends(get_current_user)):
+    """Bir iş ilanını kullanıcının favorilerine ekler veya çıkarır."""
+    user_id = current_user["id"]
+    
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    
+    # İlanın zaten favorilerde olup olmadığını kontrol et
+    cursor.execute("SELECT id FROM favorites WHERE user_id = ? AND job_id = ?", (user_id, job_id))
+    favorite = cursor.fetchone()
+    
+    if favorite:
+        # Zaten favorilerdeyse, kaldır
+        cursor.execute("DELETE FROM favorites WHERE id = ?", (favorite[0],))
+        message = "İlan favorilerden kaldırıldı."
+    else:
+        # Favorilerde değilse, ekle
+        cursor.execute("INSERT INTO favorites (user_id, job_id) VALUES (?, ?)", (user_id, job_id))
+        message = "İlan favorilere eklendi."
+        
+    conn.commit()
+    conn.close()
+    return {"message": message}
+
+@app.get("/me/favorites", response_model=List[dict])
+def get_user_favorites(current_user: dict = Depends(get_current_user)):
+    """Giriş yapmış kullanıcının favori ilanlarını listeler."""
+    user_id = current_user["id"]
+    
+    conn = get_db_conn()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # Favori ilanların ID'lerini jobs tablosuyla birleştirerek tam bilgileri al
+    query = """
+    SELECT j.job_id, j.title, j.company, j.location 
+    FROM jobs j 
+    INNER JOIN favorites f ON j.job_id = f.job_id 
+    WHERE f.user_id = ?
+    """
+    cursor.execute(query, (user_id,))
+    
+    favorite_jobs = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return favorite_jobs
+
+@app.get("/jobs/{job_id}", response_model=dict)
+def get_job_by_id(job_id: int):
+    """ID'si verilen tek bir iş ilanının tüm detaylarını döndürür."""
+    conn = get_db_conn()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,))
+    job = cursor.fetchone()
+    conn.close()
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    return dict(job)
+
+@app.post("/jobs/{job_id}/apply", status_code=status.HTTP_201_CREATED)
+def apply_for_job(job_id: int, current_user: dict = Depends(get_current_user)):
+    """Bir kullanıcının iş ilanına başvurusunu kaydeder."""
+    user_id = current_user["id"]
+    
+    conn = get_db_conn()
+    cursor = conn.cursor()
+    
+    # Kullanıcının bu ilana daha önce başvurup başvurmadığını kontrol et
+    cursor.execute("SELECT id FROM applications WHERE user_id = ? AND job_id = ?", (user_id, job_id))
+    application = cursor.fetchone()
+    
+    if application:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Bu ilana zaten başvurdunuz.")
+    
+    # Yeni başvuruyu ekle
+    application_date = datetime.utcnow().isoformat()
+    # TODO: CV dosyası yüklendiğinde buraya dosya yolunu da ekleyeceğiz.
+    cursor.execute(
+        "INSERT INTO applications (user_id, job_id, application_date) VALUES (?, ?, ?)",
+        (user_id, job_id, application_date)
+    )
+    
+    conn.commit()
+    conn.close()
+    return {"message": "Başvurunuz başarıyla alındı."}
+
+@app.get("/me/applications", response_model=List[dict])
+def get_user_applications(current_user: dict = Depends(get_current_user)):
+    """Giriş yapmış kullanıcının başvurduğu ilanları listeler."""
+    user_id = current_user["id"]
+    
+    conn = get_db_conn()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    query = """
+    SELECT j.job_id, j.title, j.company, j.location 
+    FROM jobs j 
+    INNER JOIN applications a ON j.job_id = a.job_id 
+    WHERE a.user_id = ?
+    """
+    cursor.execute(query, (user_id,))
+    
+    applied_jobs = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return applied_jobs
