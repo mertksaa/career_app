@@ -1,9 +1,59 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import 'package:file_picker/file_picker.dart';
+import '../services/api_service.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({Key? key}) : super(key: key);
+
+  // CV Yükleme Fonksiyonu
+  Future<void> _pickAndUploadCv(BuildContext context) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (authProvider.token == null) return;
+
+    // 1. Kullanıcıdan PDF dosyası seçmesini iste
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+    );
+
+    if (result != null) {
+      // 2. Dosya seçildiyse, API servisi üzerinden yükle
+      PlatformFile file = result.files.first;
+      final apiService = ApiService();
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('CV yükleniyor...')));
+
+      final response = await apiService.uploadCv(
+        authProvider.token!,
+        file.path!,
+      );
+
+      // 3. Sonucu kullanıcıya göster ve CV durumunu güncelle
+      if (response['success']) {
+        authProvider.setCvStatus(true); // CV durumunu 'Yüklendi' yap
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('CV başarıyla yüklendi!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hata: ${response['message']}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } else {
+      // Kullanıcı dosya seçmeyi iptal etti
+      print('Kullanıcı dosya seçmedi.');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,19 +125,8 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 trailing: ElevatedButton(
                   onPressed: () {
-                    // TODO: CV yükleme fonksiyonu burada çağrılacak.
-                    // Şimdilik durumu değiştirmek için provider'daki fonksiyonu kullanalım.
-                    authProvider.setCvStatus(!authProvider.hasCv);
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          authProvider.hasCv
-                              ? 'CV durumu "Yüklendi" olarak değiştirildi.'
-                              : 'CV durumu "Yüklenmedi" olarak değiştirildi.',
-                        ),
-                      ),
-                    );
+                    // Artık gerçek yükleme fonksiyonunu çağırıyoruz
+                    _pickAndUploadCv(context);
                   },
                   child: Text(authProvider.hasCv ? 'Değiştir' : 'Yükle'),
                 ),

@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/job_model.dart';
+import '../models/applicant_model.dart';
 
 class ApiService {
   // Android emülatörü için backend adresi.
   // Eğer gerçek bir telefon kullanıyorsan, bilgisayarının IP adresini yazmalısın.
   final String _baseUrl = 'http://10.0.2.2:8000';
-
+  String getBaseUrl() => _baseUrl;
   // Kayıt olma fonksiyonu
   Future<Map<String, dynamic>> register(
     String email,
@@ -46,14 +47,17 @@ class ApiService {
 
   // HTTP cevaplarını işleyen yardımcı fonksiyon
   Map<String, dynamic> _handleResponse(http.Response response) {
-    final dynamic decodedJson = jsonDecode(response.body);
+    final dynamic decodedJson = jsonDecode(utf8.decode(response.bodyBytes));
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      // Başarılı cevap
-      return {'success': true, 'data': decodedJson};
+      return {
+        'success': true,
+        'data': decodedJson,
+        'message': decodedJson is Map && decodedJson.containsKey('message')
+            ? decodedJson['message']
+            : 'İşlem başarılı.',
+      };
     } else {
-      // Hatalı cevap
-      // FastAPI'den gelen hata mesajını alıyoruz (genellikle 'detail' anahtarı altında)
       final String errorMessage =
           decodedJson is Map && decodedJson.containsKey('detail')
           ? decodedJson['detail']
@@ -79,29 +83,31 @@ class ApiService {
     }
   }
 
-  Future<List<Job>> getJobs(String token) async {
+  Future<List<Job>> getJobs(String token, {String? searchQuery}) async {
     try {
+      // URL'yi dinamik olarak oluştur
+      var uri = Uri.parse('$_baseUrl/jobs');
+      if (searchQuery != null && searchQuery.isNotEmpty) {
+        uri = uri.replace(queryParameters: {'search': searchQuery});
+      }
+
       final response = await http.get(
-        Uri.parse('$_baseUrl/jobs'),
-        headers: {
-          // Güvenli endpoint'ler için token göndermek iyi bir alışkanlıktır.
-          'Authorization': 'Bearer $token',
-        },
+        uri,
+        headers: {'Authorization': 'Bearer $token'},
       );
 
       if (response.statusCode == 200) {
-        // Cevap UTF-8 olarak decode edilmeli, Türkçe karakter sorunu yaşamamak için.
         final List<dynamic> jobsJson = jsonDecode(
           utf8.decode(response.bodyBytes),
         );
         return jobsJson.map((json) => Job.fromJson(json)).toList();
       } else {
         print('Failed to load jobs: ${response.body}');
-        return []; // Hata durumunda boş liste döndür
+        return [];
       }
     } catch (e) {
       print('GetJobs Error: $e');
-      return []; // Hata durumunda boş liste döndür
+      return [];
     }
   }
 
@@ -198,6 +204,148 @@ class ApiService {
       }
     } catch (e) {
       print('GetApplications Error: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadCv(String token, String filePath) async {
+    try {
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl/users/me/cv'),
+      );
+
+      // Header'a token'ı ekle
+      request.headers['Authorization'] = 'Bearer $token';
+
+      // Dosyayı isteğe ekle
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+
+      return _handleResponse(response);
+    } catch (e) {
+      print('UploadCv Error: $e');
+      return {'success': false, 'message': 'CV yüklenirken bir hata oluştu.'};
+    }
+  }
+
+  Future<Map<String, dynamic>> createJob(
+    String token,
+    String title,
+    String description,
+    String location,
+    String company,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/jobs'),
+        headers: {
+          'Content-Type': 'application/json; charset=UTF-8',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'title': title,
+          'description': description,
+          'location': location,
+          'company': company,
+        }),
+      );
+      return _handleResponse(response);
+    } catch (e) {
+      print('CreateJob Error: $e');
+      return {
+        'success': false,
+        'message': 'İlan oluşturulurken bir hata oluştu.',
+      };
+    }
+  }
+
+  Future<List<Job>> getMyJobs(String token) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/employer/me/jobs'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> jobsJson = jsonDecode(
+          utf8.decode(response.bodyBytes),
+        );
+        return jobsJson.map((json) => Job.fromJson(json)).toList();
+      } else {
+        print('Failed to load my jobs: ${response.body}');
+        return [];
+      }
+    } catch (e) {
+      print('GetMyJobs Error: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteJob(String token, int jobId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/jobs/$jobId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      return _handleResponse(response);
+    } catch (e) {
+      print('DeleteJob Error: $e');
+      return {'success': false, 'message': 'İlan silinirken bir hata oluştu.'};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateJob(
+    String token,
+    int jobId,
+    String title,
+    String description,
+    String location,
+    String company,
+  ) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$_baseUrl/jobs/$jobId'),
+        headers: {
+          'Content-Type': 'application/json; charset=UTF-8',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'title': title,
+          'description': description,
+          'location': location,
+          'company': company,
+        }),
+      );
+      return _handleResponse(response);
+    } catch (e) {
+      print('UpdateJob Error: $e');
+      return {
+        'success': false,
+        'message': 'İlan güncellenirken bir hata oluştu.',
+      };
+    }
+  }
+
+  Future<List<Applicant>> getApplicants(String token, int jobId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/jobs/$jobId/applicants'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> applicantsJson = jsonDecode(
+          utf8.decode(response.bodyBytes),
+        );
+        return applicantsJson.map((json) => Applicant.fromJson(json)).toList();
+      } else {
+        return [];
+      }
+    } catch (e) {
+      print('GetApplicants Error: $e');
       return [];
     }
   }

@@ -7,45 +7,47 @@ CSV_PATH = 'jobs.csv'
 
 def setup_database():
     """
-    Veritabanını ve tüm tabloları sıfırdan kurar.
-    jobs tablosunu CSV'den doldurur ve diğer tabloları oluşturur.
+    Veritabanını ve tüm tabloları sıfırdan ve doğru şema ile kurar.
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # --- 1. Jobs Tablosunu Oluştur ve Doldur ---
-    print("Creating and populating 'jobs' table...")
-    # jobs tablosu varsa silerek temiz bir başlangıç yapalım
+    print("Dropping existing tables for a fresh start...")
     cursor.execute('DROP TABLE IF EXISTS jobs')
+    cursor.execute('DROP TABLE IF EXISTS users')
+    cursor.execute('DROP TABLE IF EXISTS favorites')
+    cursor.execute('DROP TABLE IF EXISTS applications')
     
-    # jobs tablosunu CSV'den oku
-    df = pd.read_csv(CSV_PATH)
+    # --- 1. Jobs Tablosunu DOĞRU ŞEMA ile Oluştur ---
+    print("Creating 'jobs' table with proper schema...")
+    cursor.execute('''
+    CREATE TABLE jobs (
+        job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        location TEXT,
+        description TEXT,
+        company TEXT,
+        employer_id INTEGER,
+        FOREIGN KEY (employer_id) REFERENCES users(id)
+    )
+    ''')
 
-    # HATA DÜZELTME: CSV'deki gerçek sütun adlarını kullanalım.
-    # Sadece ihtiyacımız olan sütunları seçiyoruz.
+    # --- 2. CSV'den Verileri Oku ve Ekle ---
+    print("Populating 'jobs' table from CSV...")
+    df = pd.read_csv(CSV_PATH)
     required_cols = ['title', 'location', 'description', 'company_profile']
     df_selected = df[required_cols].copy()
-
-    # 'company_profile' sütununu 'company' olarak yeniden adlandıralım.
     df_selected.rename(columns={'company_profile': 'company'}, inplace=True)
-    
-    # 'job_id' sütunu CSV'de yok, bu yüzden DataFrame'in index'ini kullanarak oluşturalım.
-    df_selected.reset_index(inplace=True)
-    df_selected.rename(columns={'index': 'job_id'}, inplace=True)
+    df_selected.fillna('', inplace=True)
 
-    # Sütunları istediğimiz sırada düzenleyelim.
-    final_df = df_selected[['job_id', 'title', 'location', 'description', 'company']]
+    # DataFrame'i veritabanına ekle (ancak 'job_id' ve 'employer_id' hariç)
+    # Bu sütunlar veritabanı tarafından yönetilecek
+    df_to_insert = df_selected[['title', 'location', 'description', 'company']]
+    df_to_insert.to_sql('jobs', conn, if_exists='append', index=False)
+    print("'jobs' table populated from CSV.")
 
-    # Boş (NaN) değerleri boş string ile değiştirelim.
-    final_df.fillna('', inplace=True)
-
-    # DataFrame'i SQLite tablosuna yaz
-    final_df.to_sql('jobs', conn, if_exists='replace', index=False)
-    print("'jobs' table created and populated successfully.")
-
-    # --- 2. Kullanıcı ve Diğer Tabloları Oluştur (Bu kısım aynı) ---
+    # --- 3. Kullanıcı ve Diğer Tabloları Oluştur ---
     print("Creating user-related tables...")
-    
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,7 +56,6 @@ def setup_database():
         role TEXT NOT NULL CHECK(role IN ('job_seeker', 'employer'))
     )
     ''')
-
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS favorites (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,7 +65,6 @@ def setup_database():
         FOREIGN KEY (job_id) REFERENCES jobs (job_id)
     )
     ''')
-
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS applications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,16 +76,6 @@ def setup_database():
         FOREIGN KEY (job_id) REFERENCES jobs (job_id)
     )
     ''')
-
-    # --- 3. Jobs Tablosunu Güncelle (Bu kısım aynı) ---
-    print("Updating 'jobs' table with employer_id...")
-    try:
-        cursor.execute('ALTER TABLE jobs ADD COLUMN employer_id INTEGER REFERENCES users(id)')
-    except sqlite3.OperationalError as e:
-        if "duplicate column name" in str(e):
-            print("employer_id column already exists.")
-        else:
-            raise e
 
     print("\nDatabase setup completed successfully!")
     conn.commit()

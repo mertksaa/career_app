@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/snackbar_provider.dart';
 import './job_seeker/job_list_screen.dart';
 import './job_seeker/favorites_screen.dart';
 import './job_seeker/applications_screen.dart';
 import './profile_screen.dart';
+import './employer/create_job_screen.dart';
+import './employer/my_jobs_screen.dart';
 
 class MainNavScreen extends StatefulWidget {
   const MainNavScreen({Key? key}) : super(key: key);
@@ -15,20 +18,51 @@ class MainNavScreen extends StatefulWidget {
 
 class _MainNavScreenState extends State<MainNavScreen> {
   int _selectedIndex = 0;
+  late SnackbarProvider _snackbarProvider;
 
-  // Her rol için ekran listeleri
+  // Ekran listeleri
   final List<Widget> _jobSeekerScreens = [
-    const JobListScreen(), // Burayı güncelledik!
+    const JobListScreen(),
     const FavoritesScreen(),
     const ApplicationsScreen(),
     const ProfileScreen(),
   ];
-
   final List<Widget> _employerScreens = [
-    const Center(child: Text('İlanlarım Ekranı')), // Placeholder
-    const Center(child: Text('İlan Oluştur Ekranı')), // Placeholder
+    const MyJobsScreen(),
+    const CreateJobScreen(),
     const ProfileScreen(),
   ];
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Provider'ı dinlemeye başlıyoruz
+    _snackbarProvider = Provider.of<SnackbarProvider>(context);
+    _snackbarProvider.addListener(_showSnackbar);
+  }
+
+  @override
+  void dispose() {
+    // Sayfa kapandığında dinleyiciyi kaldırıyoruz
+    _snackbarProvider.removeListener(_showSnackbar);
+    super.dispose();
+  }
+
+  // SnackbarProvider'da bir değişiklik olduğunda bu fonksiyon çalışacak
+  void _showSnackbar() {
+    final info = _snackbarProvider.snackbarInfo;
+    if (info != null && mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(info.message),
+          backgroundColor: info.isError ? Colors.red : Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _snackbarProvider.clear(); // Mesajı gösterdikten sonra temizliyoruz
+    }
+  }
 
   void _onItemTapped(int index) {
     setState(() {
@@ -38,15 +72,11 @@ class _MainNavScreenState extends State<MainNavScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // AuthProvider'dan kullanıcı rolünü al
     final userRole = Provider.of<AuthProvider>(
       context,
       listen: false,
     ).user?.role;
-
     final bool isJobSeeker = userRole == 'job_seeker';
-
-    // Role göre ekranları ve navigasyon bar item'larını seç
     final screens = isJobSeeker ? _jobSeekerScreens : _employerScreens;
     final navItems = isJobSeeker
         ? [
@@ -61,14 +91,13 @@ class _MainNavScreenState extends State<MainNavScreen> {
             const BottomNavigationBarItem(
               icon: Icon(Icons.check_box),
               label: 'Başvurularım',
-            ), // YENİ SEKME
+            ),
             const BottomNavigationBarItem(
               icon: Icon(Icons.person),
               label: 'Profil',
             ),
           ]
         : [
-            // İşveren sekmeleri aynı kalıyor
             const BottomNavigationBarItem(
               icon: Icon(Icons.article),
               label: 'İlanlarım',
@@ -89,9 +118,8 @@ class _MainNavScreenState extends State<MainNavScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () {
-              Provider.of<AuthProvider>(context, listen: false).logout();
-            },
+            onPressed: () =>
+                Provider.of<AuthProvider>(context, listen: false).logout(),
           ),
         ],
       ),

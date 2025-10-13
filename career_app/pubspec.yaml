@@ -11,11 +11,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  http: ^0.13.6
+  http: ^1.5.0
   file_picker: ^10.3.3
   cupertino_icons: ^1.0.8
   provider: ^6.0.5
   flutter_secure_storage: ^9.0.0
+  url_launcher: ^6.1.12
+  syncfusion_flutter_pdfviewer: ^31.1.23 
 
 dev_dependencies:
   flutter_test:
