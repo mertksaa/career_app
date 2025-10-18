@@ -23,6 +23,7 @@ class MyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (ctx) => AuthProvider()),
         ChangeNotifierProvider(create: (ctx) => SnackbarProvider()),
+        ChangeNotifierProvider(create: (ctx) => MainNavProvider()),
         ChangeNotifierProxyProvider<AuthProvider, FavoritesProvider>(
           create: (ctx) => FavoritesProvider(),
           update: (ctx, auth, previous) =>

@@ -1,10 +1,13 @@
+// lib/screens/employer/my_jobs_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../models/job_model.dart';
 import '../../providers/auth_provider.dart';
-import '../../services/api_service.dart';
-import 'employer_job_detail_screen.dart';
 import '../../providers/snackbar_provider.dart';
+import '../../services/api_service.dart';
+import './edit_job_screen.dart';
+import './employer_job_detail_screen.dart';
 
 class MyJobsScreen extends StatefulWidget {
   const MyJobsScreen({Key? key}) : super(key: key);
@@ -14,117 +17,164 @@ class MyJobsScreen extends StatefulWidget {
 }
 
 class _MyJobsScreenState extends State<MyJobsScreen> {
-  Future<List<Job>>? _myJobsFuture;
+  late Future<List<Job>> _myJobsFuture;
   final ApiService _apiService = ApiService();
 
   @override
   void initState() {
     super.initState();
-    _fetchJobs();
+    _myJobsFuture = _fetchMyJobs();
   }
 
-  void _fetchJobs() {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    if (authProvider.token != null) {
-      setState(() {
-        _myJobsFuture = _apiService.getMyJobs(authProvider.token!);
-      });
+  Future<List<Job>> _fetchMyJobs() {
+    final token = Provider.of<AuthProvider>(context, listen: false).token;
+    if (token == null) {
+      return Future.value([]); // Token yoksa boş liste döndür
     }
+    // Future'ı state'te tutarak yeniden build'lerde tekrar çağrılmasını engelle
+    return _apiService.getMyJobs(token);
+  }
+
+  Future<void> _refreshJobs() async {
+    // Yenileme tetiklendiğinde Future'ı yeniden ayarla
+    setState(() {
+      _myJobsFuture = _fetchMyJobs();
+    });
   }
 
   Future<void> _deleteJob(int jobId) async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    if (authProvider.token == null) return;
-
-    final result = await _apiService.deleteJob(authProvider.token!, jobId);
-
-    if (!mounted) return;
-
-    Provider.of<SnackbarProvider>(
-      context,
-      listen: false,
-    ).show(result['message'], isError: !result['success']);
-
-    if (result['success']) {
-      _fetchJobs();
-    }
-  }
-
-  void _showDeleteConfirmation(int jobId, String title) {
-    showDialog(
+    final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('İlanı Sil'),
-        content: Text(
-          '"$title" başlıklı ilanı silmek istediğinizden emin misiniz?',
-        ),
+        content: const Text('Bu ilanı silmek istediğinizden emin misiniz?'),
         actions: [
           TextButton(
             child: const Text('İptal'),
-            onPressed: () => Navigator.of(ctx).pop(),
+            onPressed: () => Navigator.of(ctx).pop(false),
           ),
           TextButton(
             child: const Text('Sil', style: TextStyle(color: Colors.red)),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              _deleteJob(jobId);
-            },
+            onPressed: () => Navigator.of(ctx).pop(true),
           ),
         ],
       ),
     );
+
+    if (shouldDelete == null || !shouldDelete) {
+      return;
+    }
+
+    final token = Provider.of<AuthProvider>(context, listen: false).token;
+    final response = await _apiService.deleteJob(token!, jobId);
+
+    if (!mounted) return;
+
+    // HATA DÜZELTMESİ: '.show' -> '.showSnackbar' olarak değiştirildi
+    Provider.of<SnackbarProvider>(
+      context,
+      listen: false,
+    ).showSnackbar(response['message'], isError: !response['success']);
+
+    if (response['success']) {
+      _refreshJobs(); // Silme başarılıysa listeyi yenile
+    }
+  }
+
+  void _navigateToDetail(Job job) {
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(
+            builder: (context) => EmployerJobDetailScreen(job: job),
+          ),
+        )
+        .then((_) {
+          // Detaydan veya düzenleme ekranından geri dönüldüğünde
+          // olası değişiklikleri görmek için listeyi yenile
+          _refreshJobs();
+        });
+  }
+
+  void _navigateToEdit(Job job) {
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (context) => EditJobScreen(job: job)))
+        .then((_) {
+          // Düzenleme ekranından geri dönüldüğünde listeyi yenile
+          _refreshJobs();
+        });
   }
 
   @override
   Widget build(BuildContext context) {
-    // DÜZELTME: Scaffold widget'ını buradan kaldırıyoruz.
-    return RefreshIndicator(
-      onRefresh: () async => _fetchJobs(),
-      child: FutureBuilder<List<Job>>(
-        future: _myJobsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return const Center(
-              child: Text('İlanlar yüklenirken bir hata oluştu.'),
-            );
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('Henüz hiç ilan yayınlamadınız.'));
-          }
-
-          final jobs = snapshot.data!;
-          return ListView.builder(
-            itemCount: jobs.length,
-            itemBuilder: (context, index) {
-              final job = jobs[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: ListTile(
-                  title: Text(
-                    job.title,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Text(job.location),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _showDeleteConfirmation(job.id, job.title),
-                  ),
-                  onTap: () {
-                    Navigator.of(context)
-                        .push(
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                EmployerJobDetailScreen(job: job),
-                          ),
-                        )
-                        .then((_) => _fetchJobs());
-                  },
+    return Scaffold(
+      body: RefreshIndicator(
+        onRefresh: _refreshJobs,
+        child: FutureBuilder<List<Job>>(
+          future: _myJobsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            } else if (snapshot.hasError) {
+              return Center(child: Text('Bir hata oluştu: ${snapshot.error}'));
+            } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return const Center(
+                child: Text(
+                  'Henüz yayınladığınız bir ilan yok.',
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
                 ),
               );
-            },
-          );
-        },
+            }
+
+            final jobs = snapshot.data!;
+            return ListView.builder(
+              itemCount: jobs.length,
+              itemBuilder: (context, index) {
+                final job = jobs[index];
+                return Card(
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  elevation: 3,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    title: Text(
+                      job.title,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(job.location),
+                    onTap: () => _navigateToDetail(job),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.edit_outlined,
+                            color: Colors.blue,
+                          ),
+                          onPressed: () => _navigateToEdit(job),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                          ),
+                          onPressed: () => _deleteJob(job.id),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }

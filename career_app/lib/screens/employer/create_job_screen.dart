@@ -1,8 +1,11 @@
+// lib/screens/employer/create_job_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../providers/auth_provider.dart';
-import '../../services/api_service.dart';
 import '../../providers/snackbar_provider.dart';
+import '../../services/api_service.dart';
+import '../main_nav_screen.dart'; // Sekme değiştirmek için
 
 class CreateJobScreen extends StatefulWidget {
   const CreateJobScreen({Key? key}) : super(key: key);
@@ -14,13 +17,24 @@ class CreateJobScreen extends StatefulWidget {
 class _CreateJobScreenState extends State<CreateJobScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
-  final _companyController = TextEditingController();
   final _locationController = TextEditingController();
+  final _companyController = TextEditingController();
   final _descriptionController = TextEditingController();
   bool _isLoading = false;
 
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _locationController.dispose();
+    _companyController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
   Future<void> _submitForm() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
     setState(() {
       _isLoading = true;
     });
@@ -28,7 +42,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final apiService = ApiService();
 
-    final result = await apiService.createJob(
+    final response = await apiService.createJob(
       authProvider.token!,
       _titleController.text,
       _descriptionController.text,
@@ -37,107 +51,108 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
     );
 
     if (!mounted) return;
+
     setState(() {
       _isLoading = false;
     });
 
+    // HATA DÜZELTMESİ: '.show' -> '.showSnackbar' olarak değiştirildi
     Provider.of<SnackbarProvider>(
       context,
       listen: false,
-    ).show(result['message'], isError: !result['success']);
+    ).showSnackbar(response['message'], isError: !response['success']);
 
-    if (result['success']) {
+    if (response['success']) {
+      // Formu temizle
       _formKey.currentState?.reset();
       _titleController.clear();
-      _companyController.clear();
       _locationController.clear();
+      _companyController.clear();
       _descriptionController.clear();
+
+      // Kullanıcıyı 'İlanlarım' sekmesine yönlendir (index 0)
+      Provider.of<MainNavProvider>(context, listen: false).goToTab(0);
     }
   }
 
   @override
-  void dispose() {
-    _titleController.dispose();
-    _companyController.dispose();
-    _locationController.dispose();
-    _descriptionController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    // DÜZELTME: Scaffold widget'ını buradan kaldırıyoruz.
-    // Sayfa içeriği doğrudan SingleChildScrollView ile başlıyor.
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Yeni İş İlanı Oluştur',
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+    return Scaffold(
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildTextFormField(
+                  controller: _titleController,
+                  labelText: 'İlan Başlığı',
+                  icon: Icons.title,
+                ),
+                const SizedBox(height: 16),
+                _buildTextFormField(
+                  controller: _companyController,
+                  labelText: 'Şirket Adı',
+                  icon: Icons.business,
+                ),
+                const SizedBox(height: 16),
+                _buildTextFormField(
+                  controller: _locationController,
+                  labelText: 'Konum (örn: İstanbul, Türkiye)',
+                  icon: Icons.location_on,
+                ),
+                const SizedBox(height: 16),
+                _buildTextFormField(
+                  controller: _descriptionController,
+                  labelText: 'İlan Açıklaması ve Gereksinimler',
+                  icon: Icons.description,
+                  maxLines: 8,
+                ),
+                const SizedBox(height: 24),
+                _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : ElevatedButton.icon(
+                        onPressed: _submitForm,
+                        icon: const Icon(Icons.publish),
+                        label: const Text('İlanı Yayınla'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+              ],
             ),
-            const SizedBox(height: 24),
-            TextFormField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: 'İlan Başlığı',
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) =>
-                  value!.isEmpty ? 'Bu alan boş bırakılamaz' : null,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _companyController,
-              decoration: const InputDecoration(
-                labelText: 'Şirket Adı',
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) =>
-                  value!.isEmpty ? 'Bu alan boş bırakılamaz' : null,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _locationController,
-              decoration: const InputDecoration(
-                labelText: 'Lokasyon (örn: İstanbul, Türkiye)',
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) =>
-                  value!.isEmpty ? 'Bu alan boş bırakılamaz' : null,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _descriptionController,
-              decoration: const InputDecoration(
-                labelText: 'İlan Açıklaması',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 8,
-              validator: (value) =>
-                  value!.isEmpty ? 'Bu alan boş bırakılamaz' : null,
-            ),
-            const SizedBox(height: 24),
-            _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : ElevatedButton(
-                    onPressed: _submitForm,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: const Text(
-                      'İlanı Yayınla',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTextFormField({
+    required TextEditingController controller,
+    required String labelText,
+    required IconData icon,
+    int maxLines = 1,
+  }) {
+    return TextFormField(
+      controller: controller,
+      decoration: InputDecoration(
+        labelText: labelText,
+        prefixIcon: Icon(icon),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        alignLabelWithHint: maxLines > 1,
+      ),
+      maxLines: maxLines,
+      validator: (value) {
+        if (value == null || value.trim().isEmpty) {
+          return 'Bu alan boş bırakılamaz.';
+        }
+        return null;
+      },
     );
   }
 }

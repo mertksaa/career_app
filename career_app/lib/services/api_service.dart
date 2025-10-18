@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/job_model.dart';
 import '../models/applicant_model.dart';
+import '../models/recommended_job_model.dart';
+import '../models/skill_analysis_model.dart';
 
 class ApiService {
   // Android emülatörü için backend adresi.
@@ -205,6 +207,76 @@ class ApiService {
     } catch (e) {
       print('GetApplications Error: $e');
       return [];
+    }
+  }
+
+  Future<bool> getCvStatus(String token) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/users/me/cv/status'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(
+          utf8.decode(response.bodyBytes),
+        );
+        return data['has_cv'] ?? false;
+      } else {
+        // Hata durumunda (örn: 404, 500) CV'si yok varsay
+        return false;
+      }
+    } catch (e) {
+      print('GetCvStatus Error: $e');
+      return false;
+    }
+  }
+
+  Future<List<RecommendedJob>> getRecommendedJobs(String token) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/jobs/recommended'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> jobsJson = jsonDecode(
+          utf8.decode(response.bodyBytes),
+        );
+        // Boş liste gelirse (CV yoksa veya eşleşme yoksa)
+        if (jobsJson.isEmpty) {
+          return [];
+        }
+        return jobsJson.map((json) => RecommendedJob.fromJson(json)).toList();
+      } else {
+        print('Failed to load recommended jobs: ${response.body}');
+        return [];
+      }
+    } catch (e) {
+      print('GetRecommendedJobs Error: $e');
+      return [];
+    }
+  }
+
+  Future<SkillAnalysis?> getSkillAnalysis(String token, int jobId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/jobs/$jobId/analysis'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(
+          utf8.decode(response.bodyBytes),
+        );
+        return SkillAnalysis.fromJson(data);
+      } else {
+        print('Failed to load skill analysis: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('GetSkillAnalysis Error: $e');
+      return null;
     }
   }
 

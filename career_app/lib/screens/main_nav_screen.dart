@@ -1,133 +1,146 @@
+// lib/screens/main_nav_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../providers/auth_provider.dart';
-import '../providers/snackbar_provider.dart';
+import '../providers/snackbar_provider.dart'; // Snackbar provider'ı import et
 import './job_seeker/job_list_screen.dart';
 import './job_seeker/favorites_screen.dart';
 import './job_seeker/applications_screen.dart';
 import './profile_screen.dart';
-import './employer/create_job_screen.dart';
 import './employer/my_jobs_screen.dart';
+import './employer/create_job_screen.dart';
+
+// YENİ PROVIDER: Sekme değişimini global olarak yönetmek için
+class MainNavProvider with ChangeNotifier {
+  int _selectedIndex = 0;
+
+  int get selectedIndex => _selectedIndex;
+
+  void goToTab(int index) {
+    _selectedIndex = index;
+    notifyListeners();
+  }
+}
 
 class MainNavScreen extends StatefulWidget {
   const MainNavScreen({Key? key}) : super(key: key);
 
   @override
-  _MainNavScreenState createState() => _MainNavScreenState();
+  State<MainNavScreen> createState() => _MainNavScreenState();
 }
 
 class _MainNavScreenState extends State<MainNavScreen> {
-  int _selectedIndex = 0;
-  late SnackbarProvider _snackbarProvider;
+  // Bu yerel state'e artık provider üzerinden erişeceğiz
+  // int _selectedIndex = 0;
 
-  // Ekran listeleri
-  final List<Widget> _jobSeekerScreens = [
-    const JobListScreen(),
-    const FavoritesScreen(),
-    const ApplicationsScreen(),
-    const ProfileScreen(),
-  ];
-  final List<Widget> _employerScreens = [
-    const MyJobsScreen(),
-    const CreateJobScreen(),
-    const ProfileScreen(),
-  ];
+  late final List<Widget> _jobSeekerPages;
+  late final List<Widget> _employerPages;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Provider'ı dinlemeye başlıyoruz
-    _snackbarProvider = Provider.of<SnackbarProvider>(context);
-    _snackbarProvider.addListener(_showSnackbar);
-  }
+  void initState() {
+    super.initState();
 
-  @override
-  void dispose() {
-    // Sayfa kapandığında dinleyiciyi kaldırıyoruz
-    _snackbarProvider.removeListener(_showSnackbar);
-    super.dispose();
-  }
-
-  // SnackbarProvider'da bir değişiklik olduğunda bu fonksiyon çalışacak
-  void _showSnackbar() {
-    final info = _snackbarProvider.snackbarInfo;
-    if (info != null && mounted) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(info.message),
-          backgroundColor: info.isError ? Colors.red : Colors.green,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      _snackbarProvider.clear(); // Mesajı gösterdikten sonra temizliyoruz
-    }
-  }
-
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
+    // Snackbar'ı dinlemek için context'i kullan
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<SnackbarProvider>(context, listen: false).setContext(context);
     });
+
+    _jobSeekerPages = [
+      const JobListScreen(),
+      const FavoritesScreen(),
+      const ApplicationsScreen(),
+      const ProfileScreen(),
+    ];
+
+    _employerPages = [
+      const MyJobsScreen(),
+      const CreateJobScreen(),
+      const ProfileScreen(),
+    ];
   }
+
+  // Bu fonksiyona artık provider üzerinden erişeceğiz
+  // void _onItemTapped(int index) {
+  //   setState(() {
+  //     _selectedIndex = index;
+  //   });
+  // }
+
+  // İş Arayan için alt navigasyon barları
+  final List<BottomNavigationBarItem> _jobSeekerItems = [
+    const BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'İlanlar'),
+    const BottomNavigationBarItem(
+      icon: Icon(Icons.favorite_border),
+      activeIcon: Icon(Icons.favorite),
+      label: 'Favoriler',
+    ),
+    const BottomNavigationBarItem(
+      icon: Icon(Icons.article_outlined),
+      activeIcon: Icon(Icons.article),
+      label: 'Başvurularım',
+    ),
+    const BottomNavigationBarItem(
+      icon: Icon(Icons.person_outline),
+      activeIcon: Icon(Icons.person),
+      label: 'Profil',
+    ),
+  ];
+
+  // İşveren için alt navigasyon barları
+  final List<BottomNavigationBarItem> _employerItems = [
+    const BottomNavigationBarItem(
+      icon: Icon(Icons.list_alt),
+      label: 'İlanlarım',
+    ),
+    const BottomNavigationBarItem(
+      icon: Icon(Icons.add_circle_outline),
+      activeIcon: Icon(Icons.add_circle),
+      label: 'İlan Yayınla',
+    ),
+    const BottomNavigationBarItem(
+      icon: Icon(Icons.person_outline),
+      activeIcon: Icon(Icons.person),
+      label: 'Profil',
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final userRole = Provider.of<AuthProvider>(
-      context,
-      listen: false,
-    ).user?.role;
-    final bool isJobSeeker = userRole == 'job_seeker';
-    final screens = isJobSeeker ? _jobSeekerScreens : _employerScreens;
-    final navItems = isJobSeeker
-        ? [
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.list),
-              label: 'İlanlar',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.favorite),
-              label: 'Favoriler',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.check_box),
-              label: 'Başvurularım',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.person),
-              label: 'Profil',
-            ),
-          ]
-        : [
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.article),
-              label: 'İlanlarım',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.add_box),
-              label: 'İlan Ver',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.person),
-              label: 'Profil',
-            ),
-          ];
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    // YENİ: Provider'ı dinle (listen: true)
+    final navProvider = Provider.of<MainNavProvider>(context);
+
+    final List<Widget> pages = auth.user?.role == 'employer'
+        ? _employerPages
+        : _jobSeekerPages;
+    final List<BottomNavigationBarItem> items = auth.user?.role == 'employer'
+        ? _employerItems
+        : _jobSeekerItems;
+
+    // Seçili sekmenin index'inin liste boyutunu aşmadığından emin ol
+    // (örn: İş Arayan'da 4 sekme varken İşveren'e geçince 3 sekme kalıyor)
+    int currentIndex = navProvider.selectedIndex;
+    if (currentIndex >= pages.length) {
+      currentIndex = 0;
+      // Provider'ı da güncelle (bu build sırasında yapılmamalı, ama bir sonraki frame'de düzelir)
+      // WidgetsBinding.instance.addPostFrameCallback((_) {
+      //   navProvider.goToTab(0);
+      // });
+    }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(navItems[_selectedIndex].label ?? 'Career App'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () =>
-                Provider.of<AuthProvider>(context, listen: false).logout(),
-          ),
-        ],
-      ),
-      body: screens[_selectedIndex],
+      appBar: AppBar(title: Text(items[currentIndex].label ?? 'Career AI')),
+      // YENİ: provider.selectedIndex (güvenli index ile) kullan
+      body: pages[currentIndex],
       bottomNavigationBar: BottomNavigationBar(
-        items: navItems,
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
+        items: items,
+        // YENİ: provider.selectedIndex (güvenli index ile) kullan
+        currentIndex: currentIndex,
+        onTap: (index) {
+          // YENİ: provider.goToTab kullan
+          navProvider.goToTab(index);
+        },
         type: BottomNavigationBarType.fixed,
         selectedItemColor: Theme.of(context).primaryColor,
         unselectedItemColor: Colors.grey,

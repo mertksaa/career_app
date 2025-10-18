@@ -96,9 +96,21 @@ class AuthProvider with ChangeNotifier {
   Future<void> _fetchAndSetUser() async {
     if (_token == null) return;
 
+    // 1. Kullanıcı bilgilerini çek (mevcut kod)
     final result = await _apiService.getUserDetails(_token!);
+
     if (result['success']) {
       _user = User.fromJson(result['data']);
+
+      // 2. YENİ BÖLÜM: Kullanıcı bilgileri BAŞARIYLA alındıysa, CV durumunu da çek
+      try {
+        final bool cvStatus = await _apiService.getCvStatus(_token!);
+        _hasCv = cvStatus;
+        print("CV Status fetched: $_hasCv");
+      } catch (e) {
+        print("CV Status çekilirken hata: $e");
+        _hasCv = false; // Hata olursa 'yok' varsay
+      }
     } else {
       // Eğer token geçersizse veya başka bir hata olursa çıkış yap
       print("Failed to fetch user, logging out.");

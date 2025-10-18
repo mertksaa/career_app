@@ -1,27 +1,28 @@
 // lib/providers/snackbar_provider.dart
 import 'package:flutter/material.dart';
 
-// Gösterilecek mesajın bilgilerini tutan bir sınıf
-class SnackbarInfo {
-  final String message;
-  final bool isError;
-  SnackbarInfo(this.message, {this.isError = false});
-}
-
-// Bu Provider, sadece gösterilecek mesaj değiştiğinde dinleyicileri uyaracak
 class SnackbarProvider with ChangeNotifier {
-  SnackbarInfo? _snackbarInfo;
+  BuildContext? _context;
 
-  SnackbarInfo? get snackbarInfo => _snackbarInfo;
-
-  // Dışarıdan bu fonksiyon çağrılarak yeni bir mesaj gösterilmesi tetiklenecek
-  void show(String message, {bool isError = false}) {
-    _snackbarInfo = SnackbarInfo(message, isError: isError);
-    notifyListeners();
+  // Hatanın olduğu 'setContext' metodu eklendi
+  void setContext(BuildContext context) {
+    _context = context;
   }
 
-  // Mesaj gösterildikten sonra temizlemek için
-  void clear() {
-    _snackbarInfo = null;
+  // Snackbar göstermek için bir yardımcı fonksiyon
+  void showSnackbar(String message, {bool isError = false}) {
+    if (_context == null) {
+      print('SnackbarProvider: Context ayarlanmamış!');
+      return;
+    }
+
+    ScaffoldMessenger.of(_context!).hideCurrentSnackBar();
+    ScaffoldMessenger.of(_context!).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red[700] : Colors.green[700],
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 }
