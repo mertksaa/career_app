@@ -184,7 +184,6 @@ class _JobListScreenState extends State<JobListScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // HATA DÜZELTMESİ: İkon 'search_off' olarak değiştirildi
               Icon(Icons.search_off, size: 80, color: Colors.grey[400]),
               const SizedBox(height: 16),
               const Text(
@@ -249,13 +248,7 @@ class _JobListScreenState extends State<JobListScreen>
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (context) => JobDetailScreen(
-                jobId: job.id,
-                // Detay ekranına bu bilgileri yollayabiliriz (Adım 4)
-                // matchScore: job.matchScore,
-                // matchedSkills: job.matchedSkills,
-                // missingSkills: job.missingSkills,
-              ),
+              builder: (context) => JobDetailScreen(jobId: job.id),
             ),
           );
         },
@@ -300,7 +293,7 @@ class _JobListScreenState extends State<JobListScreen>
               ),
               const SizedBox(height: 8),
 
-              // Şirket ve Konum
+              // Şirket
               Text(
                 job.company,
                 style: TextStyle(
@@ -310,6 +303,9 @@ class _JobListScreenState extends State<JobListScreen>
                 ),
               ),
               const SizedBox(height: 4),
+
+              // DÜZELTME (İSTEK 2): Konum Taşması Düzeltmesi
+              // Row'un içindeki Text widget'ı Expanded ile sarıldı.
               Row(
                 children: [
                   Icon(
@@ -319,10 +315,12 @@ class _JobListScreenState extends State<JobListScreen>
                   ),
                   const SizedBox(width: 4),
                   Expanded(
+                    // BU EKLENDİ
                     child: Text(
                       job.location,
                       style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                       overflow: TextOverflow.ellipsis,
+                      maxLines: 2, // Gerekirse 2 satıra kadar insin
                     ),
                   ),
                 ],
@@ -419,7 +417,6 @@ class _JobListScreenState extends State<JobListScreen>
                 ),
                 onPressed: () {
                   // Kullanıcıyı Profil sekmesine yönlendir (index 3)
-                  // Bu 'MainNavProvider'ı kullanır (main_nav_screen.dart'ta tanımlı)
                   final navProvider = Provider.of<MainNavProvider>(
                     context,
                     listen: false,
@@ -435,7 +432,6 @@ class _JobListScreenState extends State<JobListScreen>
   }
 
   // --- ARAYÜZ: TÜM İLANLAR ---
-  // (Bu, senin mevcut kodunun güncellenmiş halidir)
   Widget _buildAllJobsView(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
@@ -489,14 +485,26 @@ class _JobListScreenState extends State<JobListScreen>
                                   color: Theme.of(context).primaryColor,
                                 ),
                               ),
+
+                              // DÜZELTME (İSTEK 1a): Başlık null olabilir
                               title: Text(
-                                job.title,
+                                job.title ?? 'Başlık Yok',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              subtitle: Text('${job.company}\n${job.location}'),
-                              isThreeLine: true,
+
+                              // DÜZELTME (İSTEK 1a, 1c, 1d):
+                              // Şirket adı yerine açıklama göster
+                              // Sabit yükseklik için maxLines ve isThreeLine ayarı
+                              subtitle: Text(
+                                job.description ?? 'Açıklama yok',
+                                maxLines: 2, // Açıklamayı 2 satıra sınırla
+                                overflow:
+                                    TextOverflow.ellipsis, // Taşarsa ... koy
+                              ),
+                              isThreeLine: false, // Kart yüksekliğini sabitler
+
                               trailing: IconButton(
                                 icon: Icon(
                                   isFav
