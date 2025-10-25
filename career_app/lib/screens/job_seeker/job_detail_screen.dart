@@ -3,15 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/job_model.dart';
-import '../../models/skill_analysis_model.dart'; // YENİ IMPORT
+import '../../models/skill_analysis_model.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/snackbar_provider.dart'; // YENİ IMPORT
+import '../../providers/snackbar_provider.dart';
 import '../../services/api_service.dart';
+import '../../providers/applications_provider.dart';
 
 class JobDetailScreen extends StatefulWidget {
   final int jobId;
-
-  // Constructor'ı jobId alacak şekilde güncelle
   const JobDetailScreen({Key? key, required this.jobId}) : super(key: key);
 
   @override
@@ -20,34 +19,22 @@ class JobDetailScreen extends StatefulWidget {
 
 class _JobDetailScreenState extends State<JobDetailScreen> {
   final ApiService _apiService = ApiService();
-
-  // Hem ilan detayı hem de analiz için Future'lar
-  late Future<Job?> _jobFuture;
-  late Future<SkillAnalysis?> _analysisFuture;
   late Future<Map<String, dynamic>> _combinedFuture;
-
   bool _isApplying = false;
 
   @override
   void initState() {
     super.initState();
-    // Sayfa açıldığında her iki veriyi de aynı anda çek
     _combinedFuture = _loadAllData();
   }
 
-  // İki API çağrısını paralel olarak yapan fonksiyon
   Future<Map<String, dynamic>> _loadAllData() async {
     final token = Provider.of<AuthProvider>(context, listen: false).token;
-    if (token == null) {
-      throw Exception('Giriş yapılmamış.');
-    }
+    if (token == null) throw Exception('Giriş yapılmamış.');
 
-    // İki future'ı ayarla
-    _jobFuture = _apiService.getJobDetails(token, widget.jobId);
-    _analysisFuture = _apiService.getSkillAnalysis(token, widget.jobId);
-
-    // İkisinin de bitmesini bekle
-    final results = await Future.wait([_jobFuture, _analysisFuture]);
+    final jobFuture = _apiService.getJobDetails(token, widget.jobId);
+    final analysisFuture = _apiService.getSkillAnalysis(token, widget.jobId);
+    final results = await Future.wait([jobFuture, analysisFuture]);
 
     return {
       'job': results[0] as Job?,
@@ -55,40 +42,41 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     };
   }
 
-  // İlana başvurma fonksiyonu
   Future<void> _applyForJob(Job job) async {
-    setState(() {
-      _isApplying = true;
-    });
-
+    setState(() => _isApplying = true);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final snackbar = Provider.of<SnackbarProvider>(context, listen: false);
+    // <<< YENİ: ApplicationsProvider'ı al >>>
+    final applicationsProvider = Provider.of<ApplicationsProvider>(
+      context,
+      listen: false,
+    );
 
-    // CV'si olup olmadığını AuthProvider'dan kontrol et (ekstra güvenlik)
     if (!authProvider.hasCv) {
       snackbar.showSnackbar(
         'Başvuru yapabilmek için önce CV yüklemelisiniz.',
         isError: true,
       );
-      setState(() {
-        _isApplying = false;
-      });
+      setState(() => _isApplying = false);
       return;
     }
 
     final response = await _apiService.applyForJob(authProvider.token!, job.id);
-
     if (mounted) {
       snackbar.showSnackbar(response['message'], isError: !response['success']);
-      setState(() {
-        _isApplying = false;
-      });
+
+      // <<< YENİ: Başvuru başarılıysa listeyi yenile >>>
+      if (response['success'] && authProvider.token != null) {
+        // Arka planda yenilemeyi tetikle, bekleme
+        applicationsProvider.fetchApplications(authProvider.token!);
+      }
+
+      setState(() => _isApplying = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // AuthProvider'ı 'Başvur' butonu ve 'hasCv' kontrolü için al
     final authProvider = Provider.of<AuthProvider>(context);
 
     return Scaffold(
@@ -96,15 +84,13 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
       body: FutureBuilder<Map<String, dynamic>>(
         future: _combinedFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting)
             return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
+          if (snapshot.hasError)
             return Center(child: Text('Hata oluştu: ${snapshot.error}'));
-          } else if (!snapshot.hasData || snapshot.data!['job'] == null) {
+          if (!snapshot.hasData || snapshot.data!['job'] == null)
             return const Center(child: Text('İlan bulunamadı.'));
-          }
 
-          // Veriler başarıyla çekildi
           final Job job = snapshot.data!['job'];
           final SkillAnalysis? analysis = snapshot.data!['analysis'];
 
@@ -113,7 +99,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // --- 1. İLAN BİLGİ KARTI ---
+                // --- 1. İLAN BİLGİ KARTI (Şirket adı kaldırıldı) ---
                 Card(
                   elevation: 2,
                   shape: RoundedRectangleBorder(
@@ -125,32 +111,14 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          job.title,
+                          job.title ?? 'Başlık Yok',
                           style: const TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.business,
-                              size: 18,
-                              color: Colors.grey[700],
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              job.company,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.grey[800],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 12),
+                        // *** DÜZELTME (İSTEK): Şirket adı buradan kaldırıldı ***
                         Row(
                           children: [
                             Icon(
@@ -159,11 +127,14 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                               color: Colors.grey[700],
                             ),
                             const SizedBox(width: 8),
-                            Text(
-                              job.location,
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.grey[700],
+                            Expanded(
+                              // Konum taşmaması için Expanded
+                              child: Text(
+                                job.location ?? 'Konum Yok',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[700],
+                                ),
                               ),
                             ),
                           ],
@@ -174,12 +145,10 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // --- 2. YETENEK ANALİZİ KARTI (YENİ) ---
+                // --- 2. YETENEK ANALİZİ KARTI ---
                 if (analysis != null &&
                     (analysis.userSkillsFound || analysis.jobSkillsFound))
                   _buildSkillAnalysisCard(analysis),
-
-                // CV'si yoksa veya ilanda yetenek yoksa uyarı göster
                 if (analysis != null && !analysis.userSkillsFound)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16.0),
@@ -192,7 +161,13 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                     ),
                   ),
 
-                // --- 3. AÇIKLAMA KARTI ---
+                // *** YENİ (İSTEK): ŞİRKET BİLGİLERİ KARTI ***
+                _buildCompanyInfoCard(job.company),
+                // Şirket bilgisi varsa SizedBox ekle
+                if (job.company != null && job.company!.isNotEmpty)
+                  const SizedBox(height: 16),
+
+                // --- 4. AÇIKLAMA KARTI ---
                 Card(
                   elevation: 2,
                   shape: RoundedRectangleBorder(
@@ -221,11 +196,11 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // --- 4. BAŞVUR BUTONU ---
+                // --- 5. BAŞVUR BUTONU ---
                 if (authProvider.user?.role == 'job_seeker')
                   ElevatedButton.icon(
                     onPressed: _isApplying || !authProvider.hasCv
-                        ? null // CV'si yoksa veya başvuruyorsa butonu kilitle
+                        ? null
                         : () => _applyForJob(job),
                     icon: _isApplying
                         ? Container(
@@ -268,18 +243,11 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     );
   }
 
-  // --- YETENEK ANALİZ KARTI WIDGET'I (YENİ) ---
+  // --- YETENEK ANALİZ KARTI WIDGET'I ---
   Widget _buildSkillAnalysisCard(SkillAnalysis analysis) {
-    // Uygunluk skoru rengini belirle
-    Color scoreColor;
-    if (analysis.matchScore >= 0.7) {
-      scoreColor = Colors.green;
-    } else if (analysis.matchScore >= 0.4) {
-      scoreColor = Colors.orange;
-    } else {
-      scoreColor = Colors.red;
-    }
-
+    Color scoreColor = analysis.matchScore >= 0.7
+        ? Colors.green
+        : (analysis.matchScore >= 0.4 ? Colors.orange : Colors.red);
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -294,8 +262,6 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const Divider(height: 20, thickness: 1),
-
-            // Uygunluk Skoru
             Text(
               'Uygunluk Skoru: ${(analysis.matchScore * 100).toStringAsFixed(0)}%',
               style: TextStyle(
@@ -315,18 +281,13 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
               ),
             ),
             const SizedBox(height: 20),
-
-            // Eşleşen Yetenekler
             _buildSkillChipList(
               'Eşleşen Yetenekleriniz',
               analysis.matchedSkills,
               Colors.green[700]!,
               Icons.check_circle_outline,
             ),
-
             const SizedBox(height: 16),
-
-            // Eksik Yetenekler
             _buildSkillChipList(
               'Eksik Yetenekler',
               analysis.missingSkills,
@@ -339,7 +300,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     );
   }
 
-  // --- YETENEK ETİKET (CHIP) LİSTESİ WIDGET'I (YENİ) ---
+  // --- YETENEK ETİKET (CHIP) LİSTESİ WIDGET'I ---
   Widget _buildSkillChipList(
     String title,
     List<String> skills,
@@ -373,21 +334,64 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
           )
         else
           Wrap(
-            spacing: 8.0, // Yatay boşluk
-            runSpacing: 4.0, // Dikey boşluk
-            children: skills.map((skill) {
-              return Chip(
-                label: Text(
-                  skill,
-                  style: TextStyle(color: color, fontWeight: FontWeight.w500),
-                ),
-                backgroundColor: color.withOpacity(0.1),
-                side: BorderSide(color: color.withOpacity(0.3)),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              );
-            }).toList(),
+            spacing: 8.0,
+            runSpacing: 4.0,
+            children: skills
+                .map(
+                  (skill) => Chip(
+                    label: Text(
+                      skill,
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    backgroundColor: color.withOpacity(0.1),
+                    side: BorderSide(color: color.withOpacity(0.3)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                  ),
+                )
+                .toList(),
           ),
       ],
+    );
+  }
+
+  // *** YENİ (İSTEK): Şirket Bilgileri Kartı Widget'ı ***
+  Widget _buildCompanyInfoCard(String? companyInfo) {
+    // Eğer şirket bilgisi yoksa veya boşsa, kartı hiç gösterme
+    if (companyInfo == null || companyInfo.trim().isEmpty) {
+      return const SizedBox.shrink(); // Boş widget döndür
+    }
+
+    // TODO: Eğer ileride company_profile bilgisi eklenirse,
+    // buraya 'ReadMoreText' gibi bir widget ile "Tamamını Oku" eklenebilir.
+    // Şimdilik sadece şirket adını gösteriyoruz.
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      // margin: const EdgeInsets.only(bottom: 16), // Altına SizedBox eklendi
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Şirket Bilgileri',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const Divider(height: 20, thickness: 1),
+            Text(
+              companyInfo,
+              style: const TextStyle(fontSize: 15, height: 1.5),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -1,5 +1,4 @@
 
-# backend/main.py
 import json
 import io
 import re
@@ -7,21 +6,17 @@ import os
 import sqlite3
 import datetime
 from typing import List, Optional, Any
-
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-
-# --- JWT ve Auth Kütüphaneleri ---
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-
-# --- Proje İçi Importlar ---
-# from match_utils import ... -> KALDIRILDI (Hata buradaydı)
 import pdfplumber
-# NLP SERVİSİMİZ
+
 from nlp_service import analyze_text 
+from fastapi.responses import FileResponse
+import mimetypes
 
 APP_DIR = os.path.dirname(__file__)
 DB_PATH = os.path.join(APP_DIR, 'career.db')
@@ -345,6 +340,37 @@ async def upload_user_cv(
         }
     }
 
+@app.get("/users/{user_id}/cv")
+async def download_applicant_cv(
+    user_id: int,
+    current_user: User = Depends(get_current_employer), # Sadece işveren erişebilir
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """
+    (İŞVEREN) Belirtilen user_id'ye sahip kullanıcının CV dosyasını döndürür.
+    CV'lerin 'user_cvs/cv_{user_id}.pdf' olarak kaydedildiğini varsayar.
+    """
+    # TODO: Güvenlik kontrolü eklenebilir (işveren bu kullanıcıyı görebilir mi?)
+
+    # user_profiles'dan has_cv kontrolü
+    cursor = db.cursor()
+    cursor.execute("SELECT has_cv FROM user_profiles WHERE user_id = ?", (user_id,))
+    profile = cursor.fetchone()
+
+    if not profile or not profile['has_cv']:
+        raise HTTPException(status_code=404, detail="Kullanıcının CV'si bulunamadı veya yüklenmemiş.")
+
+    # CV path'ini upload_user_cv ile aynı varsayalım
+    cv_filename = f"cv_{user_id}.pdf"
+    cv_path = os.path.join(APP_DIR, "user_cvs", cv_filename) 
+
+    if not os.path.exists(cv_path):
+        print(f"HATA: DB'de CV var ama dosya bulunamadı: {cv_path}")
+        raise HTTPException(status_code=500, detail="CV dosyası sunucuda bulunamadı.")
+
+    media_type, _ = mimetypes.guess_type(cv_path)
+    return FileResponse(cv_path, media_type=media_type or 'application/pdf', filename=cv_filename)
+    
 @app.get("/users/me/cv/status")
 async def get_cv_status(
     current_user: User = Depends(get_current_user),
@@ -585,19 +611,70 @@ async def get_recommended_jobs(
 @app.get("/jobs", response_model=List[Job])
 async def get_all_jobs(
     search: Optional[str] = None,
+    # === PAGINATION PARAMETRELERİ ===
+    page: int = Query(1, ge=1, description="Sayfa numarası (1'den başlar)"),
+    size: int = Query(20, ge=1, le=100, description="Sayfa başına ilan sayısı (max 100)"), # Varsayılan 20 ilan
+    # === PARAMETRELER SONU ===
     current_user: User = Depends(get_current_user),
     db: sqlite3.Connection = Depends(get_db)
 ):
+    """
+    (İŞ ARAYAN) Tüm iş ilanlarını sayfalanmış olarak listeler.
+    Arama parametresi (search) alabilir.
+    """
     cursor = db.cursor()
+
+    # === PAGINATION HESAPLAMALARI ===
+    offset = (page - 1) * size
+    # === HESAPLAMALAR SONU ===
+
     query = "SELECT * FROM jobs"
     params = []
+
     if search:
         query += " WHERE title LIKE ?"
         params.append(f"%{search}%")
-    query += " ORDER BY job_id DESC"
-    cursor.execute(query, params)
-    jobs = [Job(**row) for row in cursor.fetchall()]
-    return jobs
+
+    # === PAGINATION SORGUSU ===
+    query += " ORDER BY job_id DESC LIMIT ? OFFSET ?"
+    params.extend([size, offset]) # LIMIT ve OFFSET değerlerini ekle
+    # === SORGUSU SONU ===
+
+    try:
+        cursor.execute(query, params)
+        fetched_rows = cursor.fetchall() # Önce tüm satırları al
+        jobs = []
+
+        for row in fetched_rows:
+            # <<< DÜZELTME: sqlite3.Row'u önce dict'e çevir >>>
+            row_dict = dict(row)
+            try:
+                # <<< DÜZELTME: Pydantic modelini dict üzerinden oluştur >>>
+                jobs.append(Job(
+                    job_id=row_dict.get('job_id'), # .get() None dönebilir ama PK olduğu için sorun olmamalı
+                    title=row_dict.get('title', 'Başlık Yok'), # .get() ile None kontrolü daha güvenli
+                    location=row_dict.get('location', 'Konum Yok'),
+                    description=row_dict.get('description'),
+                    company=row_dict.get('company'),
+                    employer_id=row_dict.get('employer_id'),
+                    requirements=row_dict.get('requirements'),
+                    benefits=row_dict.get('benefits'),
+                    company_profile=row_dict.get('company_profile')
+                 ))
+            # <<< DÜZELTME: except bloğu doğru girintide ve dict üzerinden çalışıyor >>>
+            except Exception as e_row: # Tek bir satırda Pydantic veya erişim hatası olursa atla ve logla
+                 job_id_str = str(row_dict.get('job_id', 'Bilinmiyor'))
+                 print(f"Satır dönüştürme hatası (job_id: {job_id_str}): {e_row}")
+                 continue # Hatalı satırı atla, sonraki ilana geç
+
+        return jobs # <<< return ifadesi döngünün dışında >>>
+
+    except sqlite3.Error as e_db: # Veritabanı sorgu hatası
+        print(f"Veritabanı sorgu hatası (get_all_jobs): {e_db}")
+        raise HTTPException(status_code=500, detail="İlanlar getirilirken bir veritabanı hatası oluştu.")
+    except Exception as e_general: # Diğer beklenmedik hatalar
+        print(f"Beklenmedik hata (get_all_jobs): {e_general}")
+        raise HTTPException(status_code=500, detail="İlanlar getirilirken beklenmedik bir hata oluştu.")
 
 @app.get("/jobs/{job_id}", response_model=Job)
 async def get_job_details(

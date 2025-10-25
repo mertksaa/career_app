@@ -1,13 +1,13 @@
 // lib/screens/job_seeker/job_list_screen.dart
+// SENİN KODUN + SADECE PAGINATION VE ENTER İLE ARAMA EKLEMELERİ
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-// Profil ekranına yönlendirme (Provider aracılığıyla)
 import 'package:career_app/screens/main_nav_screen.dart';
 
 import '../../models/job_model.dart';
-import '../../models/recommended_job_model.dart'; // YENİ MODEL
+import '../../models/recommended_job_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/favorites_provider.dart';
 import '../../services/api_service.dart';
@@ -20,7 +20,6 @@ class JobListScreen extends StatefulWidget {
   _JobListScreenState createState() => _JobListScreenState();
 }
 
-// Düzeltme: Sekmeli bir arayüz için 'TickerProviderStateMixin' ekliyoruz
 class _JobListScreenState extends State<JobListScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -29,40 +28,62 @@ class _JobListScreenState extends State<JobListScreen>
   List<Job> _allJobs = [];
   List<RecommendedJob> _recommendedJobs = [];
 
-  // Yükleme durumları
+  // Yükleme durumları (Sayfalama için yeni state'ler eklendi)
   bool _isRecommendedLoading = true;
-  bool _isAllJobsLoading = true;
+  bool _isAllJobsLoading = true; // <<< İlk yükleme durumu
+  bool _isAllJobsLoadingMore = false; // <<< Sayfalama yükleme durumu
+  bool _hasMoreAllJobs = true; // <<< Daha fazla ilan var mı?
+  int _allJobsCurrentPage = 1; // <<< Mevcut sayfa no
+  final int _allJobsPageSize = 20; // <<< Sayfa boyutu (isteğin üzerine 20)
   bool _hasCv = false;
 
-  // 'Tüm İlanlar' sekmesi için arama araçları
+  // Arama ve Scroll Controller (ScrollController eklendi, debounce kaldırıldı)
   final _searchController = TextEditingController();
-  Timer? _debounce;
+  // Timer? _debounce; // <<< KALDIRILDI (Enter ile arama için)
+  final ScrollController _allJobsScrollController =
+      ScrollController(); // <<< YENİ ScrollController
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
 
-    // AuthProvider'dan CV durumunu al
     final auth = Provider.of<AuthProvider>(context, listen: false);
     _hasCv = auth.hasCv;
 
-    // Verileri çek
+    // Scroll listener ekle (Sayfalama için) <<< YENİ
+    _allJobsScrollController.addListener(_onAllJobsScroll);
+
+    // İlk verileri çek
     _fetchRecommendedData();
-    _fetchAllJobsData();
+    _fetchAllJobsData(isInitialLoad: true); // <<< İlk yükleme olarak işaretle
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     _searchController.dispose();
-    _debounce?.cancel();
+    // _debounce?.cancel(); // <<< KALDIRILDI
+    _allJobsScrollController.removeListener(
+      _onAllJobsScroll,
+    ); // <<< Listener'ı kaldır
+    _allJobsScrollController.dispose(); // <<< Controller'ı dispose et
     super.dispose();
   }
 
-  // --- Veri Çekme Fonksiyonları ---
+  // <<< YENİ: Sayfalama için scroll listener fonksiyonu >>>
+  void _onAllJobsScroll() {
+    // Eğer listenin sonuna yaklaşıldıysa VE yükleme yapılmıyorsa VE daha fazla ilan varsa
+    if (_allJobsScrollController.position.pixels >=
+            _allJobsScrollController.position.maxScrollExtent -
+                300 && // Sona 300px kala
+        !_isAllJobsLoadingMore &&
+        _hasMoreAllJobs) {
+      _fetchAllJobsData(); // Sonraki sayfayı çek (isInitialLoad: false olacak)
+    }
+  }
 
-  // Önerilen İlanları Çek
+  // Önerilen İlanları Çek (Senin kodun - Değişiklik yok)
   Future<void> _fetchRecommendedData() async {
     if (!mounted) return;
     setState(() {
@@ -72,7 +93,6 @@ class _JobListScreenState extends State<JobListScreen>
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final apiService = ApiService();
 
-    // Sadece CV'si varsa önerileri çek
     if (_hasCv) {
       try {
         final fetchedJobs = await apiService.getRecommendedJobs(
@@ -87,7 +107,6 @@ class _JobListScreenState extends State<JobListScreen>
         print("Error fetching recommended data: $e");
       }
     }
-    // CV'si olmasa bile yüklemeyi bitir (uyarıyı göstermek için)
     if (mounted) {
       setState(() {
         _isRecommendedLoading = false;
@@ -95,50 +114,88 @@ class _JobListScreenState extends State<JobListScreen>
     }
   }
 
-  // Tüm İlanları Çek
-  Future<void> _fetchAllJobsData({String? query}) async {
+  // <<< GÜNCELLENDİ: Tüm İlanları Çek (Sayfalama mantığı ile) >>>
+  Future<void> _fetchAllJobsData({
+    String? query,
+    bool isInitialLoad = false,
+  }) async {
+    // Aynı anda birden fazla yükleme isteğini engelle
+    if (_isAllJobsLoadingMore && !isInitialLoad) return;
+    // Zaten son sayfaya ulaşıldıysa (ve ilk yükleme değilse) tekrar istek atma
+    if (!isInitialLoad && !_hasMoreAllJobs) return;
     if (!mounted) return;
+
+    // Yükleme durumunu ayarla
     setState(() {
-      _isAllJobsLoading = true;
+      if (isInitialLoad) {
+        _isAllJobsLoading = true; // Tam ekran yükleme göstergesi
+        _allJobsCurrentPage = 1; // Sayfayı sıfırla
+        _allJobs.clear(); // Listeyi temizle (yeni arama veya yenileme için)
+        _hasMoreAllJobs = true; // Başlangıçta daha fazla veri olduğunu varsay
+        // Yeni arama/yenileme için scroll'u en başa al
+        if (_allJobsScrollController.hasClients) {
+          _allJobsScrollController.jumpTo(0);
+        }
+      } else {
+        _isAllJobsLoadingMore = true; // Liste sonunda küçük yükleme göstergesi
+      }
     });
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final apiService = ApiService();
 
-    try {
-      final fetchedJobs = await apiService.getJobs(
-        authProvider.token!,
-        searchQuery: query,
-      );
-      if (mounted) {
-        setState(() {
-          _allJobs = fetchedJobs;
-        });
+    if (authProvider.token != null) {
+      try {
+        // API'den ilgili sayfayı (page) ve boyutu (size) iste
+        final fetchedJobs = await apiService.getJobs(
+          authProvider.token!,
+          searchQuery:
+              query ?? _searchController.text, // Mevcut arama sorgusunu kullan
+          page: _allJobsCurrentPage,
+          size: _allJobsPageSize,
+        );
+
+        if (mounted) {
+          setState(() {
+            // Gelen yeni ilanları mevcut listeye ekle
+            _allJobs.addAll(fetchedJobs);
+            // Eğer API'den gelen liste, istediğimiz boyuttan küçükse, son sayfaya ulaştık
+            if (fetchedJobs.length < _allJobsPageSize) {
+              _hasMoreAllJobs = false;
+            }
+            // Bir sonraki sayfa numarasını artır
+            _allJobsCurrentPage++;
+          });
+        }
+      } catch (e) {
+        print("Error fetching all jobs data (page: $_allJobsCurrentPage): $e");
+        // Hata mesajını Flutter loguna yazdırıyoruz
+        if (mounted)
+          setState(
+            () => _hasMoreAllJobs = false,
+          ); // Hata durumunda daha fazla yükleme yapma
       }
-    } catch (e) {
-      print("Error fetching all jobs data: $e");
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isAllJobsLoading = false;
-        });
-      }
+    } else {
+      if (mounted) setState(() => _hasMoreAllJobs = false); // Token yoksa
+    }
+
+    // Yükleme durumlarını güncelle
+    if (mounted) {
+      setState(() {
+        _isAllJobsLoading = false; // İlk yükleme bitti
+        _isAllJobsLoadingMore = false; // Daha fazla yükleme bitti
+      });
     }
   }
 
-  // 'Tüm İlanlar' sekmesi için arama geciktirici
-  void _onSearchChanged(String query) {
-    if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      _fetchAllJobsData(query: query);
-    });
-  }
+  // <<< KALDIRILDI: Otomatik arama fonksiyonu >>>
+  // void _onSearchChanged(String query) { ... }
 
   @override
   Widget build(BuildContext context) {
+    // Bu build metodu aynı kalıyor...
     return Column(
       children: [
-        // 1. SEKMELER (TABS)
         TabBar(
           controller: _tabController,
           labelColor: Theme.of(context).primaryColor,
@@ -149,17 +206,17 @@ class _JobListScreenState extends State<JobListScreen>
             Tab(icon: Icon(Icons.travel_explore_outlined), text: 'Tüm İlanlar'),
           ],
         ),
-        // 2. SEKMELİ İÇERİK (TABBARVIEW)
         Expanded(
           child: TabBarView(
             controller: _tabController,
             children: [
-              // --- SEKME 1: SİZE ÖZEL ---
+              // Size Özel Sekmesi (Değişiklik yok)
               _isRecommendedLoading
                   ? const Center(child: CircularProgressIndicator())
                   : _buildRecommendedView(context),
-              // --- SEKME 2: TÜM İLANLAR ---
-              _isAllJobsLoading
+              // Tüm İlanlar Sekmesi (Yükleme göstergesi güncellendi)
+              // İlk yükleme yapılıyorsa VE liste boşsa göstergeyi göster
+              _isAllJobsLoading && _allJobs.isEmpty
                   ? const Center(child: CircularProgressIndicator())
                   : _buildAllJobsView(context),
             ],
@@ -169,47 +226,20 @@ class _JobListScreenState extends State<JobListScreen>
     );
   }
 
-  // --- ARAYÜZ: SİZE ÖZEL (ÖNERİLEN İLANLAR) ---
+  // --- ARAYÜZ: SİZE ÖZEL ---
+  // Senin kodundaki _buildRecommendedView (Değişiklik yok)
   Widget _buildRecommendedView(BuildContext context) {
-    // 1. CV Yoksa: CV Yükleme Uyarısı Göster
     if (!_hasCv) {
       return _buildUploadCvPrompt(context);
     }
-
-    // 2. CV Var ama Öneri Yoksa
     if (_recommendedJobs.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.search_off, size: 80, color: Colors.grey[400]),
-              const SizedBox(height: 16),
-              const Text(
-                'Size Uygun İlan Bulunamadı',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Profilinize ve yeteneklerinize uyan bir ilan henüz yayınlanmamış veya bulunamadı.',
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.refresh),
-                label: const Text('Yeniden Dene'),
-                onPressed: _fetchRecommendedData,
-              ),
-            ],
-          ),
-        ),
+      return _buildEmptyState(
+        'Size Uygun İlan Bulunamadı',
+        'Profilinize ve yeteneklerinize uyan bir ilan henüz yayınlanmamış veya bulunamadı.',
+        Icons.search_off,
+        _fetchRecommendedData,
       );
     }
-
-    // 3. Öneriler Varsa: Modern Kart Listesini Göster
     return RefreshIndicator(
       onRefresh: _fetchRecommendedData,
       child: ListView.builder(
@@ -223,21 +253,14 @@ class _JobListScreenState extends State<JobListScreen>
     );
   }
 
-  // ARAYÜZ: Modern İlan Kartı
+  // Size Özel Kartı (Senin kodundaki UI düzeltmeleri uygulanmış hali - Değişiklik yok)
   Widget _buildRecommendedJobCard(BuildContext context, RecommendedJob job) {
     final favoritesProvider = context.watch<FavoritesProvider>();
     final authProvider = context.read<AuthProvider>();
     final isFav = favoritesProvider.isFavorite(job.id);
-
-    // Uygunluk skoru rengini belirle
-    Color scoreColor;
-    if (job.matchScore >= 0.7) {
-      scoreColor = Colors.green;
-    } else if (job.matchScore >= 0.4) {
-      scoreColor = Colors.orange;
-    } else {
-      scoreColor = Colors.red;
-    }
+    Color scoreColor = job.matchScore >= 0.7
+        ? Colors.green
+        : (job.matchScore >= 0.4 ? Colors.orange : Colors.red);
 
     return Card(
       elevation: 4,
@@ -245,26 +268,24 @@ class _JobListScreenState extends State<JobListScreen>
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
       child: InkWell(
         borderRadius: BorderRadius.circular(12.0),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => JobDetailScreen(jobId: job.id),
-            ),
-          );
-        },
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => JobDetailScreen(jobId: job.id),
+          ),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(12.0),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Üst Satır: Başlık ve Favori Butonu
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     child: Text(
-                      job.title,
+                      job.title ?? 'Başlık Yok',
                       style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.bold,
@@ -292,20 +313,17 @@ class _JobListScreenState extends State<JobListScreen>
                 ],
               ),
               const SizedBox(height: 8),
-
-              // Şirket
               Text(
-                job.company,
+                job.description ?? 'Açıklama yok',
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey[800],
+                  color: Colors.grey[700],
+                  height: 1.4,
                 ),
+                maxLines: 7,
+                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 4),
-
-              // DÜZELTME (İSTEK 2): Konum Taşması Düzeltmesi
-              // Row'un içindeki Text widget'ı Expanded ile sarıldı.
+              const SizedBox(height: 8),
               Row(
                 children: [
                   Icon(
@@ -315,19 +333,16 @@ class _JobListScreenState extends State<JobListScreen>
                   ),
                   const SizedBox(width: 4),
                   Expanded(
-                    // BU EKLENDİ
                     child: Text(
-                      job.location,
+                      job.location ?? 'Konum Yok',
                       style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                       overflow: TextOverflow.ellipsis,
-                      maxLines: 2, // Gerekirse 2 satıra kadar insin
+                      maxLines: 2,
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
-
-              // Uygunluk Skoru (Modern Arayüz)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -358,7 +373,7 @@ class _JobListScreenState extends State<JobListScreen>
     );
   }
 
-  // ARAYÜZ: CV Yükleme Uyarısı
+  // CV Yükleme Uyarısı (Senin kodun - Değişiklik yok)
   Widget _buildUploadCvPrompt(BuildContext context) {
     return SingleChildScrollView(
       child: Center(
@@ -416,7 +431,6 @@ class _JobListScreenState extends State<JobListScreen>
                   ),
                 ),
                 onPressed: () {
-                  // Kullanıcıyı Profil sekmesine yönlendir (index 3)
                   final navProvider = Provider.of<MainNavProvider>(
                     context,
                     listen: false,
@@ -431,39 +445,97 @@ class _JobListScreenState extends State<JobListScreen>
     );
   }
 
-  // --- ARAYÜZ: TÜM İLANLAR ---
+  // <<< GÜNCELLENDİ: TÜM İLANLAR ARAYÜZÜ (Pagination ve Arama Çubuğu Düzeltmesi) >>>
   Widget _buildAllJobsView(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     return Column(
       children: [
-        // ARAMA ÇUBUĞU
         Padding(
           padding: const EdgeInsets.all(8.0),
+          // <<< GÜNCELLENDİ: Arama çubuğu onChanged yerine onSubmitted kullanıyor >>>
           child: TextField(
             controller: _searchController,
             decoration: InputDecoration(
               labelText: 'İlanlarda Ara (Başlığa Göre)...',
+              hintText: 'Aramak için yazıp Enter\'a basın', // Hint eklendi
               prefixIcon: const Icon(Icons.search),
+              // Arama kutusunun sağ tarafına temizleme butonu ekleyelim
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        // Controller'ı temizle
+                        _searchController.clear();
+                        // Temizleyince aramayı sıfırla ve ilk sayfayı getir
+                        _fetchAllJobsData(query: '', isInitialLoad: true);
+                      },
+                    )
+                  : null, // Boşsa temizleme ikonunu gösterme
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            onChanged: _onSearchChanged,
+            // onChanged: _onSearchChanged, // <<< KALDIRILDI
+            textInputAction:
+                TextInputAction.search, // Klavye Enter tuşunu "Ara" yapar
+            onSubmitted: (value) {
+              // <<< YENİ: Enter'a basınca tetiklenir
+              // Arama yaparken ilk sayfadan başla
+              _fetchAllJobsData(query: value, isInitialLoad: true);
+            },
           ),
         ),
-        // İLAN LİSTESİ
         Expanded(
-          child: _allJobs.isEmpty
-              ? const Center(child: Text('Aramanızla eşleşen ilan bulunamadı.'))
+          // Yükleme bittiyse VE liste hala boşsa boş state göster
+          child: !_isAllJobsLoading && _allJobs.isEmpty
+              ? _buildEmptyState(
+                  'İlan Bulunamadı',
+                  'Aramanızla eşleşen veya mevcut bir ilan bulunamadı.',
+                  Icons.find_in_page_outlined,
+                  () => _fetchAllJobsData(
+                    query: _searchController.text,
+                    isInitialLoad: true,
+                  ),
+                )
+              // Değilse RefreshIndicator ve ListView göster
               : RefreshIndicator(
-                  onRefresh: () =>
-                      _fetchAllJobsData(query: _searchController.text),
+                  // Yukarı çekince yenileme
+                  onRefresh: () => _fetchAllJobsData(
+                    query: _searchController.text,
+                    isInitialLoad: true,
+                  ),
                   child: Consumer<FavoritesProvider>(
                     builder: (context, favoritesProvider, child) {
+                      // Sayfalama için ListView.builder güncellendi
                       return ListView.builder(
-                        itemCount: _allJobs.length,
+                        controller:
+                            _allJobsScrollController, // <<< Scroll Controller bağlandı
+                        // Liste eleman sayısı = İlan sayısı + (daha fazla ilan varsa 1 tane yükleme göstergesi)
+                        itemCount:
+                            _allJobs.length +
+                            (_hasMoreAllJobs
+                                ? 1
+                                : 0), // <<< itemCount güncellendi
                         itemBuilder: (context, index) {
+                          // <<< YENİ: Eğer index, listenin son elemanıysa yükleme göstergesi >>>
+                          if (index == _allJobs.length) {
+                            // Yükleme yapılıyorsa göstergeyi göster, değilse boşluk bırak
+                            return _isAllJobsLoadingMore
+                                ? const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        vertical: 24.0,
+                                      ),
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  )
+                                : const SizedBox(
+                                    height: 10,
+                                  ); // Liste sonu estetik boşluk
+                          }
+
+                          // Normal ilan kartını göster (Senin kodundaki UI düzeltmeleri uygulanmış hali)
                           final job = _allJobs[index];
                           final isFav = favoritesProvider.isFavorite(job.id);
                           return Card(
@@ -485,26 +557,18 @@ class _JobListScreenState extends State<JobListScreen>
                                   color: Theme.of(context).primaryColor,
                                 ),
                               ),
-
-                              // DÜZELTME (İSTEK 1a): Başlık null olabilir
                               title: Text(
                                 job.title ?? 'Başlık Yok',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-
-                              // DÜZELTME (İSTEK 1a, 1c, 1d):
-                              // Şirket adı yerine açıklama göster
-                              // Sabit yükseklik için maxLines ve isThreeLine ayarı
                               subtitle: Text(
                                 job.description ?? 'Açıklama yok',
-                                maxLines: 2, // Açıklamayı 2 satıra sınırla
-                                overflow:
-                                    TextOverflow.ellipsis, // Taşarsa ... koy
-                              ),
-                              isThreeLine: false, // Kart yüksekliğini sabitler
-
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ), // Açıklama göster
+                              isThreeLine: false, // Sabit yükseklik
                               trailing: IconButton(
                                 icon: Icon(
                                   isFav
@@ -521,14 +585,12 @@ class _JobListScreenState extends State<JobListScreen>
                                   }
                                 },
                               ),
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        JobDetailScreen(jobId: job.id),
-                                  ),
-                                );
-                              },
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      JobDetailScreen(jobId: job.id),
+                                ),
+                              ),
                             ),
                           );
                         },
@@ -540,4 +602,42 @@ class _JobListScreenState extends State<JobListScreen>
       ],
     );
   }
-}
+
+  // Ortak Boş Durum Widget'ı (Senin kodun - Değişiklik yok)
+  Widget _buildEmptyState(
+    String title,
+    String message,
+    IconData icon,
+    VoidCallback onRefresh,
+  ) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 80, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.refresh),
+              label: const Text('Yeniden Dene'),
+              onPressed: onRefresh,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+} // State sınıfının sonu

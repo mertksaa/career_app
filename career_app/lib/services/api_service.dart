@@ -85,13 +85,22 @@ class ApiService {
     }
   }
 
-  Future<List<Job>> getJobs(String token, {String? searchQuery}) async {
+  Future<List<Job>> getJobs(
+    String token, {
+    String? searchQuery,
+    int page = 1, // Varsayılan sayfa 1
+    int size = 20, // Varsayılan boyut 20
+  }) async {
     try {
-      // URL'yi dinamik olarak oluştur
-      var uri = Uri.parse('$_baseUrl/jobs');
-      if (searchQuery != null && searchQuery.isNotEmpty) {
-        uri = uri.replace(queryParameters: {'search': searchQuery});
-      }
+      // URL'yi dinamik olarak oluştur (sayfalama parametreleri ile)
+      var uri = Uri.parse('$_baseUrl/jobs').replace(
+        queryParameters: {
+          'page': page.toString(),
+          'size': size.toString(),
+          if (searchQuery != null && searchQuery.isNotEmpty)
+            'search': searchQuery,
+        },
+      );
 
       final response = await http.get(
         uri,
@@ -102,14 +111,15 @@ class ApiService {
         final List<dynamic> jobsJson = jsonDecode(
           utf8.decode(response.bodyBytes),
         );
+        // Backend'den gelen her bir json objesini Job.fromJson ile dönüştür
         return jobsJson.map((json) => Job.fromJson(json)).toList();
       } else {
-        print('Failed to load jobs: ${response.body}');
-        return [];
+        print('Failed to load jobs (page: $page): ${response.body}');
+        return []; // Hata durumunda boş liste
       }
     } catch (e) {
-      print('GetJobs Error: $e');
-      return [];
+      print('GetJobs Error (page: $page): $e');
+      return []; // Hata durumunda boş liste
     }
   }
 
@@ -230,6 +240,11 @@ class ApiService {
       print('GetCvStatus Error: $e');
       return false;
     }
+  }
+
+  String getApplicantCvUrl(int applicantUserId) {
+    // Backend'deki yeni endpoint'e göre URL oluştur
+    return '$_baseUrl/users/$applicantUserId/cv';
   }
 
   Future<List<RecommendedJob>> getRecommendedJobs(String token) async {
