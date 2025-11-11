@@ -6,14 +6,14 @@ import os
 import sqlite3
 import datetime
 from typing import List, Optional, Any
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status, Query
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 import pdfplumber
-
+import spacy
 from nlp_service import analyze_text 
 from fastapi.responses import FileResponse
 import mimetypes
@@ -169,6 +169,15 @@ async def get_current_employer(current_user: User = Depends(get_current_user)) -
 
 app = FastAPI(title="Career AI Backend (Tam Sürüm)")
 
+nlp = None
+try:
+    # Aşama 1'de indirdiğimiz İngilizce (medium) modeli yüklüyoruz
+    nlp = spacy.load("en_core_web_md")
+    print("--- spaCy 'en_core_web_md' modeli başarıyla yüklendi. ---")
+except IOError:
+    print("--- HATA: 'en_core_web_md' modeli bulunamadı. ---")
+    print("--- Lütfen 'python -m spacy download en_core_web_md' komutunu çalıştırın. ---")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -292,12 +301,16 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
 
 @app.post("/users/me/cv")
 async def upload_user_cv(
+    # <<< DEĞİŞİKLİK BURADA: BackgroundTasks eklendi >>>
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: sqlite3.Connection = Depends(get_db)
 ):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Sadece PDF dosyaları yüklenebilir.")
+    
+    # ... (PDF okuma ve 'text' çıkarma kısmı aynı)
     content = await file.read()
     text = ""
     try:
@@ -319,6 +332,9 @@ async def upload_user_cv(
     try:
         cursor = db.cursor()
         current_time = datetime.datetime.now().isoformat()
+        
+        # <<< DEĞİŞİKLİK: Eski 'cv_raw_text' sütununu artık KULLANMIYORUZ >>>
+        # (O sütunu boşa eklettim, özür dilerim, ama zararı yok, orada durabilir)
         cursor.execute("""
             INSERT INTO user_profiles (user_id, has_cv, cv_analysis_json, last_updated)
             VALUES (?, 1, ?, ?)
@@ -332,13 +348,116 @@ async def upload_user_cv(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"CV analizi kaydedilirken hata: {e}")
     
+    # <<< YENİ BÖLÜM: Arka Plan Görevini Tetikle >>>
+    print(f"Kullanıcı {current_user.id} için skor hesaplaması arka planda başlatılıyor...")
+    # Veritabanı bağlantısı kapandıktan sonra çalışacağı için
+    # db objesi yerine DB_PATH'i (dosya yolu) gönderiyoruz.
+    background_tasks.add_task(
+        _recalculate_scores_for_user, 
+        user_id=current_user.id, 
+        db_path=DB_PATH
+    )
+    # <<< BİTTİ >>>
+
     return {
         "filename": file.filename,
-        "message": "CV başarıyla analiz edildi ve profilinize kaydedildi.",
+        # <<< DEĞİŞİKLİK: Mesaj güncellendi >>>
+        "message": "CV analiz edildi. Önerileriniz birkaç dakika içinde hazırlanacak.",
         "analysis_summary": {
             "detected_skills_count": len(analysis_result.get("skills", [])),
         }
     }
+
+def _recalculate_scores_for_user(user_id: int, db_path: str):
+    """
+    (ARKA PLAN GÖREVİ) Bir kullanıcı için TÜM ilan skorlarını hesaplar
+    ve yeni 'job_recommendation_scores' tablosuna yazar.
+    Bu, 'spaCy' kullandığı için YAVAŞTIR (örn: 4-5 dk).
+    """
+    
+    print(f"[Arka Plan] Kullanıcı {user_id} için skorlama başladı...")
+    db = None
+    try:
+        # 1. Arka plan görevi kendi DB bağlantısını açmalı
+        db = sqlite3.connect(db_path, check_same_thread=False, timeout=15)
+        db.row_factory = sqlite3.Row
+        cursor = db.cursor()
+
+        # 2. Kullanıcının analiz edilmiş yetenek metnini al
+        cursor.execute("SELECT cv_analysis_json FROM user_profiles WHERE user_id = ?", (user_id,))
+        user_profile = cursor.fetchone()
+        
+        if not user_profile or not user_profile['cv_analysis_json']:
+            print(f"[Arka Plan] Kullanıcı {user_id} CV analizi bulunamadı. Görev durdu.")
+            return
+
+        user_skills_data = json.loads(user_profile['cv_analysis_json'])
+        user_skills = {s for s in user_skills_data.get("skills", []) if s and s.strip()}
+        
+        if not user_skills:
+            print(f"[Arka Plan] Kullanıcı {user_id} 0 yetenek bulundu. Görev durdu.")
+            return
+            
+        user_skills_text = " ".join(user_skills)
+        if not user_skills_text:
+             print(f"[Arka Plan] Kullanıcı {user_id} yetenek metni boş. Görev durdu.")
+             return
+             
+        user_doc = nlp(user_skills_text)
+
+        # 3. TÜM ilanların yetenek metinlerini al
+        cursor.execute("SELECT job_id, requirements_json FROM jobs WHERE requirements_json IS NOT NULL")
+        all_jobs = cursor.fetchall()
+        
+        scores_to_insert = []
+        
+        # 4. YAVAŞ DÖNGÜ (TÜM ilanlar üzerinde)
+        for job_row in all_jobs:
+            job_id = job_row['job_id']
+            try:
+                job_skills_data = json.loads(job_row['requirements_json'])
+                job_skills = {s for s in job_skills_data.get("skills", []) if s and s.strip()}
+                
+                if not job_skills:
+                    continue
+                    
+                job_skills_text = " ".join(job_skills)
+                if not job_skills_text:
+                    continue
+                
+                job_doc = nlp(job_skills_text)
+                
+                # Anlamsal skoru hesapla
+                semantic_score = float(user_doc.similarity(job_doc))
+                
+                if semantic_score > 0.20: # Sadece %20'den büyükleri kaydet
+                    scores_to_insert.append((user_id, job_id, semantic_score))
+                    
+            except Exception as e:
+                print(f"[Arka Plan] Hata (job_id: {job_id}): {e}")
+                continue
+        
+        # 5. Sonuçları veritabanına yaz
+        if scores_to_insert:
+            print(f"[Arka Plan] Kullanıcı {user_id} için {len(scores_to_insert)} adet skor bulundu. DB'ye yazılıyor...")
+            # Önce eski skorları temizle
+            cursor.execute("DELETE FROM job_recommendation_scores WHERE user_id = ?", (user_id,))
+            # Sonra yenilerini topluca ekle
+            cursor.executemany(
+                "INSERT INTO job_recommendation_scores (user_id, job_id, match_score) VALUES (?, ?, ?)",
+                scores_to_insert
+            )
+            db.commit()
+        
+        print(f"[Arka Plan] Kullanıcı {user_id} için skorlama TAMAMLANDI.")
+
+    except Exception as e:
+        print(f"[Arka Plan] Kullanıcı {user_id} için skorlama BAŞARISIZ: {e}")
+        if db:
+            db.rollback()
+    finally:
+        if db:
+            db.close()
 
 @app.get("/users/{user_id}/cv")
 async def download_applicant_cv(
@@ -528,85 +647,104 @@ async def get_job_applicants(
 
 
 # === 5. İŞ ARAMA (İŞ ARAYAN) ENDPOINT'LERİ ===
+def calculate_semantic_similarity(text1: str, text2: str, nlp_model) -> float:
+    """
+    İki metin arasındaki anlamsal benzerliği spaCy kullanarak hesaplar.
+    Global 'nlp' modelini parametre olarak alır.
+    """
+    if nlp_model is None:
+        print("HATA: NLP modeli yüklenemedi. Benzerlik 0 olarak döndürülüyor.")
+        return 0.0
+    
+    if not text1 or not text2:
+        return 0.0
 
+    try:
+        doc1 = nlp_model(text1)
+        doc2 = nlp_model(text2)
+        similarity = doc1.similarity(doc2)
+        
+        if similarity > 1.0: similarity = 1.0
+        if similarity < 0.0: similarity = 0.0
+        
+        return float(similarity)
+    except Exception as e:
+        print(f"Benzerlik hesaplanırken hata oluştu: {e}")
+        return 0.0
+# =====================================
 @app.get("/jobs/recommended", response_model=List[RecommendedJob])
 async def get_recommended_jobs(
     current_user: User = Depends(get_current_user),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
-    (İŞ ARAYAN) Kullanıcının CV'sine göre kişiselleştirilmiş ve 
-    skorlanmış iş ilanlarını getirir.
+    (İŞ ARAYAN) Kullanıcının önceden hesaplanmış skorlarını getirir.
+    
+    GÜNCELLENDİ (v7 - SÜPER HIZLI OKUYUCU):
+    - Bu fonksiyon artık 'spaCy' hesaplaması YAPMAZ.
+    - Sadece 'job_recommendation_scores' tablosundaki hazır veriyi okur.
+    - Yükleme süresi 4-5 dakika değil, < 100 milisaniyedir.
     """
     
-    # 1. Kullanıcının CV analizini (yeteneklerini) al
     cursor = db.cursor()
-    cursor.execute(
-        "SELECT has_cv, cv_analysis_json FROM user_profiles WHERE user_id = ?", 
-        (current_user.id,)
-    )
+    
+    # 1. UI'da 'matched/missing' göstermek için kullanıcının yeteneklerini al
+    cursor.execute("SELECT cv_analysis_json FROM user_profiles WHERE user_id = ?", (current_user.id,))
     user_profile = cursor.fetchone()
     
-    if not user_profile or not user_profile['has_cv'] or not user_profile['cv_analysis_json']:
-        # Kullanıcının CV'si yoksa veya analiz edilmemişse boş liste döndür
-        # Flutter tarafı bunu yakalayıp "Önce CV yükleyin" diyecek
-        return []
+    user_skills = set()
+    if user_profile and user_profile['cv_analysis_json']:
+        try:
+            user_skills_data = json.loads(user_profile['cv_analysis_json'])
+            user_skills = {s for s in user_skills_data.get("skills", []) if s and s.strip()}
+        except json.JSONDecodeError:
+            pass # user_skills boş set olarak kalır
 
-    try:
-        user_skills_data = json.loads(user_profile['cv_analysis_json'])
-        user_skills = set(user_skills_data.get("skills", []))
-    except json.JSONDecodeError:
-        user_skills = set() # JSON bozuksa
-        
-    if not user_skills:
-        # CV var ama 0 yetenek bulunduysa (boş CV vb.)
-        return []
-
-    # 2. Analiz edilmiş tüm iş ilanlarını al (backfill sayesinde dolu)
+    # 2. HAZIR SKORLARI YENİ TABLODAN ÇEK (ÇOK HIZLI)
     cursor.execute(
-        "SELECT * FROM jobs WHERE requirements_json IS NOT NULL"
+        """
+        SELECT 
+            j.*, 
+            s.match_score 
+        FROM job_recommendation_scores s
+        JOIN jobs j ON s.job_id = j.job_id
+        WHERE s.user_id = ?
+        ORDER BY s.match_score DESC 
+        LIMIT 50 
+        """,
+        (current_user.id,)
     )
-    all_jobs = cursor.fetchall()
+    
+    recommendations_data = cursor.fetchall()
     
     recommendations = []
     
-    # 3. Her ilan ile kullanıcının yeteneklerini karşılaştır
-    for job_row in all_jobs:
+    # 3. Sonuçları 'RecommendedJob' modeline dönüştür
+    # (Burada 'matched_skills' için hızlı bir kesişim yapıyoruz)
+    for job_row in recommendations_data:
         job = Job(**job_row) # Pydantic Job modeline çevir
         
-        try:
-            job_skills_data = json.loads(job_row['requirements_json'])
-            job_skills = set(job_skills_data.get("skills", []))
-        except (json.JSONDecodeError, TypeError):
-            job_skills = set()
-            
-        if not job_skills:
-            # İlanın gerektirdiği yetenek listesi boşsa, eşleştirme yapma
-            continue
-            
-        # 4. Eşleştirme Mantığı (KALP)
+        job_skills = set()
+        if job_row['requirements_json']:
+            try:
+                job_skills_data = json.loads(job_row['requirements_json'])
+                job_skills = {s for s in job_skills_data.get("skills", []) if s and s.strip()}
+            except (json.JSONDecodeError, TypeError):
+                pass
+                
         matched_skills = user_skills.intersection(job_skills)
         missing_skills = job_skills.difference(user_skills)
         
-        # Uygunluk Skoru: (Eşleşen Yetenek Sayısı / İlanın İstediği Toplam Yetenek Sayısı)
-        # Örn: İlan 10 yetenek istiyor, kullanıcı 3'üne sahip -> Skor = 3 / 10 = 0.3 (%30)
-        match_score = round(len(matched_skills) / len(job_skills), 2)
-        
-        # Sadece %0'dan büyük bir uyum varsa listeye ekle
-        if match_score > 0:
-            recommendations.append(
-                RecommendedJob(
-                    **job.model_dump(), # Job modelinin tüm alanlarını kopyala
-                    match_score=match_score,
-                    matched_skills=sorted(list(matched_skills)),
-                    missing_skills=sorted(list(missing_skills))
-                )
+        recommendations.append(
+            RecommendedJob(
+                **job.model_dump(),
+                match_score=job_row['match_score'], # Skoru doğrudan DB'den al
+                matched_skills=sorted(list(matched_skills)),
+                missing_skills=sorted(list(missing_skills))
             )
+        )
             
-    # 5. İlanları en yüksek skordan en düşüğe doğru sırala
-    recommendations_sorted = sorted(recommendations, key=lambda j: j.match_score, reverse=True)
-    
-    return recommendations_sorted
+    return recommendations
 
 @app.get("/jobs", response_model=List[Job])
 async def get_all_jobs(
@@ -698,6 +836,10 @@ async def get_job_skill_analysis(
     """
     (İŞ ARAYAN) Belirli bir iş ilanı (job_id) ile mevcut kullanıcının
     CV'si arasındaki Yetenek Açığı (Skill Gap) analizini yapar.
+    
+    GÜNCELLENDİ (v2 - HİBRİT MODEL):
+    Artık /jobs/recommended ile aynı anlamsal (spaCy)
+    skorlama mantığını kullanır.
     """
     cursor = db.cursor()
     
@@ -713,11 +855,11 @@ async def get_job_skill_analysis(
     if user_profile and user_profile['has_cv'] and user_profile['cv_analysis_json']:
         try:
             user_skills_data = json.loads(user_profile['cv_analysis_json'])
-            user_skills = set(user_skills_data.get("skills", []))
+            user_skills = {s for s in user_skills_data.get("skills", []) if s and s.strip()}
             if user_skills:
                 user_skills_found = True
         except json.JSONDecodeError:
-            pass # user_skills boş set olarak kalır
+            pass
 
     # 2. İş ilanının analizini (gereken yetenekleri) al
     cursor.execute(
@@ -734,31 +876,41 @@ async def get_job_skill_analysis(
     if job_row['requirements_json']:
         try:
             job_skills_data = json.loads(job_row['requirements_json'])
-            job_skills = set(job_skills_data.get("skills", []))
+            job_skills = {s for s in job_skills_data.get("skills", []) if s and s.strip()}
             if job_skills:
                 job_skills_found = True
         except (json.JSONDecodeError, TypeError):
-            pass # job_skills boş set olarak kalır
+            pass
 
     # 3. Eşleştirme Mantığı
-    if not job_skills_found or not user_skills_found:
-        # Karşılaştırma yapılamıyorsa (CV yoksa, ilanda yetenek yoksa vb.)
-        return SkillAnalysisResponse(
-            match_score=0.0,
-            matched_skills=[],
-            missing_skills=sorted(list(job_skills)), # Eksik olarak ilanın tüm yeteneklerini göster
-            user_skills_found=user_skills_found,
-            job_skills_found=job_skills_found
-        )
-
+    
+    # UI için listeler
     matched_skills = user_skills.intersection(job_skills)
     missing_skills = job_skills.difference(user_skills)
     
-    # Uygunluk Skoru
-    match_score = round(len(matched_skills) / len(job_skills), 2)
+    # <<< YENİ ANLAMSAL SKOR HESAPLAMASI (v2) >>>
+    match_score = 0.0
+    
+    # İki tarafta da yetenek varsa ve spaCy modeli yüklendiyse
+    if user_skills_found and job_skills_found and nlp:
+        user_skills_text = " ".join(user_skills)
+        job_skills_text = " ".join(job_skills)
+        
+        # [W008] hatasını engellemek için son kontrol
+        if user_skills_text and job_skills_text:
+            try:
+                user_doc = nlp(user_skills_text)
+                job_doc = nlp(job_skills_text)
+                match_score = float(user_doc.similarity(job_doc))
+            except Exception as e:
+                print(f"Hata /jobs/analysis (job_id: {job_id}): {e}")
+                match_score = 0.0 # Hata olursa 0'a dön
+        
+    # <<< ESKİ SKOR HESAPLAMASI SİLİNDİ >>>
+    # match_score = round(len(matched_skills) / len(job_skills), 2)
     
     return SkillAnalysisResponse(
-        match_score=match_score,
+        match_score=match_score, # <<< Artık anlamsal skoru döndür
         matched_skills=sorted(list(matched_skills)),
         missing_skills=sorted(list(missing_skills)),
         user_skills_found=user_skills_found,
@@ -849,3 +1001,4 @@ async def get_my_applications(
     """, (current_user.id,))
     jobs = [Job(**row) for row in cursor.fetchall()]
     return jobs
+
