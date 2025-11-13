@@ -224,13 +224,10 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
                               onPressed: () {
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
-                                    // <<< DÜZELTME 2: CvViewerScreen Constructor (Parametre hatası) >>>
-                                    // Hata mesajına göre 'userId' ve 'userEmail' gerekli.
                                     builder: (context) => CvViewerScreen(
-                                      userId: applicant
-                                          .userId, // 'applicantUserId' DEĞİL
-                                      userEmail: applicant
-                                          .email, // 'applicantEmail' DEĞİL
+                                      userId: applicant.userId,
+                                      userEmail: applicant.email,
+                                      lastUpdated: applicant.lastUpdated,
                                     ),
                                   ),
                                 );

@@ -301,7 +301,6 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
 
 @app.post("/users/me/cv")
 async def upload_user_cv(
-    # <<< DEĞİŞİKLİK BURADA: BackgroundTasks eklendi >>>
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
@@ -310,10 +309,29 @@ async def upload_user_cv(
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Sadece PDF dosyaları yüklenebilir.")
     
-    # ... (PDF okuma ve 'text' çıkarma kısmı aynı)
+    # 1. Dosya içeriğini oku
     content = await file.read()
+    
+    # <<< EKSİK OLAN PARÇA: DOSYAYI DİSKE KAYDET >>>
+    # CV'leri 'user_cvs' klasörüne 'cv_{user_id}.pdf' olarak kaydediyoruz
+    cv_filename = f"cv_{current_user.id}.pdf"
+    cv_path = os.path.join(APP_DIR, "user_cvs", cv_filename)
+    
+    # Klasör yoksa oluştur
+    os.makedirs(os.path.dirname(cv_path), exist_ok=True)
+    
+    try:
+        with open(cv_path, "wb") as f:
+            f.write(content)
+        print(f"CV dosyası kaydedildi: {cv_path}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Dosya sunucuya kaydedilemedi: {e}")
+    # <<< KAYDETME İŞLEMİ BİTTİ >>>
+
+    # 2. Metin Çıkarma (Analiz için)
     text = ""
     try:
+        # BytesIO ile bellekteki content'i okuyoruz (diskteki dosyayı değil)
         with pdfplumber.open(io.BytesIO(content)) as pdf:
             for page in pdf.pages:
                 page_text = page.extract_text()
@@ -321,6 +339,7 @@ async def upload_user_cv(
                     text += page_text + "\n"
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF okunurken hata: {e}")
+        
     if not text.strip():
         raise HTTPException(status_code=400, detail="PDF dosyasından metin çıkarılamadı (boş içerik).")
     
@@ -333,8 +352,7 @@ async def upload_user_cv(
         cursor = db.cursor()
         current_time = datetime.datetime.now().isoformat()
         
-        # <<< DEĞİŞİKLİK: Eski 'cv_raw_text' sütununu artık KULLANMIYORUZ >>>
-        # (O sütunu boşa eklettim, özür dilerim, ama zararı yok, orada durabilir)
+        # last_updated güncelleniyor, bu sayede cache busting de çalışacak
         cursor.execute("""
             INSERT INTO user_profiles (user_id, has_cv, cv_analysis_json, last_updated)
             VALUES (?, 1, ?, ?)
@@ -348,20 +366,16 @@ async def upload_user_cv(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"CV analizi kaydedilirken hata: {e}")
     
-    # <<< YENİ BÖLÜM: Arka Plan Görevini Tetikle >>>
+    # Arka Plan Görevini Tetikle
     print(f"Kullanıcı {current_user.id} için skor hesaplaması arka planda başlatılıyor...")
-    # Veritabanı bağlantısı kapandıktan sonra çalışacağı için
-    # db objesi yerine DB_PATH'i (dosya yolu) gönderiyoruz.
     background_tasks.add_task(
         _recalculate_scores_for_user, 
         user_id=current_user.id, 
         db_path=DB_PATH
     )
-    # <<< BİTTİ >>>
 
     return {
         "filename": file.filename,
-        # <<< DEĞİŞİKLİK: Mesaj güncellendi >>>
         "message": "CV analiz edildi. Önerileriniz birkaç dakika içinde hazırlanacak.",
         "analysis_summary": {
             "detected_skills_count": len(analysis_result.get("skills", [])),
@@ -459,6 +473,97 @@ def _recalculate_scores_for_user(user_id: int, db_path: str):
         if db:
             db.close()
 
+def _recalculate_scores_for_job(job_id: int, db_path: str):
+    """
+    (ARKA PLAN GÖREVİ) Yeni bir iş ilanı (job_id) için TÜM kullanıcı
+    CV'lerine göre skorları hesaplar ve 'job_recommendation_scores' tablosuna yazar.
+    Bu, 'spaCy' kullandığı için YAVAŞTIR.
+    """
+    
+    print(f"[Arka Plan] İlan {job_id} için skorlama başladı...")
+    db = None
+    try:
+        # 1. Arka plan görevi kendi DB bağlantısını açmalı
+        db = sqlite3.connect(db_path, check_same_thread=False, timeout=15)
+        db.row_factory = sqlite3.Row
+        cursor = db.cursor()
+
+        # 2. İlanın analiz edilmiş yetenek metnini al
+        cursor.execute("SELECT requirements_json FROM jobs WHERE job_id = ?", (job_id,))
+        job_row = cursor.fetchone()
+        
+        if not job_row or not job_row['requirements_json']:
+            print(f"[Arka Plan] İlan {job_id} analizi bulunamadı. Görev durdu.")
+            return
+
+        job_skills_data = json.loads(job_row['requirements_json'])
+        job_skills = {s for s in job_skills_data.get("skills", []) if s and s.strip()}
+        
+        if not job_skills:
+            print(f"[Arka Plan] İlan {job_id} 0 yetenek bulundu. Görev durdu.")
+            return
+            
+        job_skills_text = " ".join(job_skills)
+        if not job_skills_text:
+             print(f"[Arka Plan] İlan {job_id} yetenek metni boş. Görev durdu.")
+             return
+             
+        job_doc = nlp(job_skills_text)
+
+        # 3. TÜM kullanıcıların CV yetenek metinlerini al
+        cursor.execute("SELECT user_id, cv_analysis_json FROM user_profiles WHERE has_cv = 1 AND cv_analysis_json IS NOT NULL")
+        all_user_profiles = cursor.fetchall()
+        
+        scores_to_insert = []
+        
+        # 4. YAVAŞ DÖNGÜ (TÜM CV'ler üzerinde)
+        for user_profile in all_user_profiles:
+            user_id = user_profile['user_id']
+            try:
+                user_skills_data = json.loads(user_profile['cv_analysis_json'])
+                user_skills = {s for s in user_skills_data.get("skills", []) if s and s.strip()}
+                
+                if not user_skills:
+                    continue
+                    
+                user_skills_text = " ".join(user_skills)
+                if not user_skills_text:
+                    continue
+                
+                user_doc = nlp(user_skills_text)
+                
+                # Anlamsal skoru hesapla
+                semantic_score = float(user_doc.similarity(job_doc))
+                
+                if semantic_score > 0.20: # Sadece %20'den büyükleri kaydet
+                    scores_to_insert.append((user_id, job_id, semantic_score))
+                    
+            except Exception as e:
+                print(f"[Arka Plan] Hata (user_id: {user_id}): {e}")
+                continue
+        
+        # 5. Sonuçları veritabanına yaz
+        if scores_to_insert:
+            print(f"[Arka Plan] İlan {job_id} için {len(scores_to_insert)} adet skor bulundu. DB'ye yazılıyor...")
+            # Önce bu ilan için eski skorları temizle (güncelleme senaryosu için)
+            cursor.execute("DELETE FROM job_recommendation_scores WHERE job_id = ?", (job_id,))
+            # Sonra yenilerini topluca ekle
+            cursor.executemany(
+                "INSERT INTO job_recommendation_scores (user_id, job_id, match_score) VALUES (?, ?, ?)",
+                scores_to_insert
+            )
+            db.commit()
+        
+        print(f"[Arka Plan] İlan {job_id} için skorlama TAMAMLANDI.")
+
+    except Exception as e:
+        print(f"[Arka Plan] İlan {job_id} için skorlama BAŞARISIZ: {e}")
+        if db:
+            db.rollback()
+    finally:
+        if db:
+            db.close()
+
 @app.get("/users/{user_id}/cv")
 async def download_applicant_cv(
     user_id: int,
@@ -508,6 +613,8 @@ async def get_cv_status(
 @app.post("/jobs", response_model=Job, status_code=status.HTTP_201_CREATED)
 async def create_job(
     job: JobCreate,
+    # <<< DEĞİŞİKLİK BURADA: BackgroundTasks eklendi >>>
+    background_tasks: BackgroundTasks, 
     current_user: User = Depends(get_current_employer),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -525,13 +632,20 @@ async def create_job(
             INSERT INTO jobs (title, location, description, company, employer_id, requirements_json)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            # Not: Yeni zengin CSV'den gelen 'requirements' ve 'benefits' 
-            # henüz 'jobs' tablosunda değil. Bunu bir sonraki adımda (ETL) düzelteceğiz.
-            # Şimdilik sadece description'ı kaydediyoruz.
             (job.title, job.location, job.description, job.company, current_user.id, requirements_json)
         )
         job_id = cursor.lastrowid
         db.commit()
+        
+        # <<< YENİ BÖLÜM: Arka Plan Görevini Tetikle >>>
+        print(f"İlan {job_id} için skor hesaplaması arka planda başlatılıyor...")
+        background_tasks.add_task(
+            _recalculate_scores_for_job, 
+            job_id=job_id, 
+            db_path=DB_PATH
+        )
+        # <<< BİTTİ >>>
+        
         return Job(
             job_id=job_id,
             title=job.title,
@@ -548,6 +662,8 @@ async def create_job(
 async def update_job(
     job_id: int,
     job: JobCreate,
+    # <<< DEĞİŞİKLİK BURADA: BackgroundTasks eklendi >>>
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_employer),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -571,6 +687,16 @@ async def update_job(
             raise HTTPException(status_code=404, detail="İlan bulunamadı veya bu ilanı güncelleme yetkiniz yok.")
         
         db.commit()
+        
+        # <<< YENİ BÖLÜM: Arka Plan Görevini Tetikle >>>
+        print(f"Güncellenen ilan {job_id} için skor hesaplaması arka planda başlatılıyor...")
+        background_tasks.add_task(
+            _recalculate_scores_for_job, 
+            job_id=job_id, 
+            db_path=DB_PATH
+        )
+        # <<< BİTTİ >>>
+        
         return Job(
             job_id=job_id,
             title=job.title,
@@ -600,6 +726,7 @@ async def delete_job(
         
         cursor.execute("DELETE FROM applications WHERE job_id = ?", (job_id,))
         cursor.execute("DELETE FROM favorites WHERE job_id = ?", (job_id,))
+        cursor.execute("DELETE FROM job_recommendation_scores WHERE job_id = ?", (job_id,))
         cursor.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
         db.commit()
         return
@@ -636,7 +763,8 @@ async def get_job_applicants(
             u.id as user_id, 
             u.email, 
             a.application_date, 
-            up.has_cv
+            up.has_cv,
+            up.last_updated
         FROM applications a
         JOIN users u ON a.user_id = u.id
         LEFT JOIN user_profiles up ON u.id = up.user_id

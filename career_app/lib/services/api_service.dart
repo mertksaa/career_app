@@ -242,9 +242,14 @@ class ApiService {
     }
   }
 
-  String getApplicantCvUrl(int applicantUserId) {
-    // Backend'deki yeni endpoint'e göre URL oluştur
-    return '$_baseUrl/users/$applicantUserId/cv';
+  String getApplicantCvUrl(int applicantUserId, {String? timestamp}) {
+    String url = '$_baseUrl/users/$applicantUserId/cv';
+
+    if (timestamp != null) {
+      url += '?v=$timestamp';
+    }
+
+    return url;
   }
 
   Future<List<RecommendedJob>> getRecommendedJobs(String token) async {

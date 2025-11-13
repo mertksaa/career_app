@@ -9,11 +9,13 @@ import '../../services/api_service.dart';
 class CvViewerScreen extends StatelessWidget {
   final int userId;
   final String userEmail;
+  final String? lastUpdated;
 
   const CvViewerScreen({
     Key? key,
     required this.userId,
     required this.userEmail,
+    this.lastUpdated,
   }) : super(key: key);
 
   @override
@@ -21,7 +23,7 @@ class CvViewerScreen extends StatelessWidget {
     final token = Provider.of<AuthProvider>(context, listen: false).token;
     final apiService = ApiService();
 
-    final cvUrl = apiService.getApplicantCvUrl(userId);
+    final cvUrl = apiService.getApplicantCvUrl(userId, timestamp: lastUpdated);
 
     if (token == null) {
       return Scaffold(
