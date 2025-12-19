@@ -37,7 +37,7 @@ class EmployerJobDetailScreen extends StatelessWidget {
               elevation: 2,
               child: ListTile(
                 leading: const Icon(Icons.people, color: Colors.blue),
-                title: const Text('Başvuranları Görüntüle'),
+                title: const Text('Show Applicants'),
                 trailing: const Icon(Icons.arrow_forward_ios),
                 onTap: () {
                   // YENİ: Başvuranlar listesi ekranına yönlendirme
@@ -54,23 +54,23 @@ class EmployerJobDetailScreen extends StatelessWidget {
 
             // İlan Bilgileri
             Text(
-              'Şirket: ${job.company}',
+              'Company: ${job.company}',
               style: const TextStyle(fontSize: 18),
             ),
             const SizedBox(height: 8),
             Text(
-              'Lokasyon: ${job.location}',
+              'Location: ${job.location}',
               style: const TextStyle(fontSize: 18),
             ),
             const SizedBox(height: 24),
             const Text(
-              'İlan Açıklaması',
+              'Job Description',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const Divider(),
             const SizedBox(height: 8),
             Text(
-              job.description ?? 'Açıklama bulunmuyor.',
+              job.description ?? 'No Descriptipn.',
               style: const TextStyle(fontSize: 16, height: 1.5),
             ),
           ],

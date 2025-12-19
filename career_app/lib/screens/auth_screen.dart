@@ -2,71 +2,56 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 
-// Ekranın modunu (Giriş mi, Kayıt mı) belirtmek için bir enum
-enum AuthMode { Login, Register }
-
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({Key? key}) : super(key: key);
+  const AuthScreen({super.key});
 
   @override
-  _AuthScreenState createState() => _AuthScreenState();
+  State<AuthScreen> createState() => _AuthScreenState();
 }
 
 class _AuthScreenState extends State<AuthScreen> {
+  bool _isLogin = true;
   final _formKey = GlobalKey<FormState>();
-  AuthMode _authMode = AuthMode.Login;
+  String _email = '';
+  String _password = '';
+  String _role = 'job_seeker';
 
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-
-  // Sadece kayıt modunda kullanılacak
-  String _selectedRole = 'job_seeker';
-
-  void _switchAuthMode() {
-    setState(() {
-      _authMode = _authMode == AuthMode.Login
-          ? AuthMode.Register
-          : AuthMode.Login;
-    });
-  }
-
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) {
-      return; // Form geçerli değilse işlemi durdur
-    }
+  void _submit() async {
+    if (!_formKey.currentState!.validate()) return;
     _formKey.currentState!.save();
 
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    bool success;
 
-    bool success = false;
-    if (_authMode == AuthMode.Login) {
-      success = await authProvider.login(
-        _emailController.text,
-        _passwordController.text,
-      );
+    // Klavye açıksa kapat
+    FocusScope.of(context).unfocus();
+
+    if (_isLogin) {
+      success = await auth.login(_email, _password);
     } else {
-      success = await authProvider.register(
-        _emailController.text,
-        _passwordController.text,
-        _selectedRole,
-      );
-      if (success) {
-        // Kayıt başarılıysa kullanıcıya bilgi ver ve giriş moduna geçir
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Kayıt başarılı! Şimdi giriş yapabilirsiniz.'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        _switchAuthMode();
-      }
+      success = await auth.register(_email, _password, _role);
     }
 
-    // Eğer giriş başarısızsa veya kayıt başarısızsa hata mesajını göster
-    if (!success && authProvider.errorMessage != null) {
+    if (success) {
+      if (!mounted) return;
+      if (!_isLogin) {
+        setState(() {
+          _isLogin = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Registration successful! Please login."),
+          ),
+        );
+      } else {
+        // pushReplacementNamed kullanarak geri dönüşü engelle
+        Navigator.of(context).pushReplacementNamed('/home');
+      }
+    } else {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(authProvider.errorMessage!),
+          content: Text(auth.errorMessage ?? "An error occurred"),
           backgroundColor: Colors.red,
         ),
       );
@@ -75,114 +60,128 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context);
-    final isLogin = _authMode == AuthMode.Login;
+    // AuthProvider'ı dinle (loading durumunu görmek için)
+    final isLoading = Provider.of<AuthProvider>(context).isLoading;
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.background,
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Icon(
-                  Icons.work_outline,
-                  size: 80,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.work_outline,
+                size: 80,
+                color: Theme.of(context).primaryColor,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                "Career AI",
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
                   color: Theme.of(context).primaryColor,
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  isLogin ? 'Hoş Geldiniz!' : 'Hesap Oluşturun',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
+              ),
+              const SizedBox(height: 40),
+              Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
                 ),
-                const SizedBox(height: 24),
-                TextFormField(
-                  controller: _emailController,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (value) {
-                    if (value == null ||
-                        value.isEmpty ||
-                        !value.contains('@')) {
-                      return 'Lütfen geçerli bir email girin.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _passwordController,
-                  decoration: const InputDecoration(
-                    labelText: 'Şifre',
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                  validator: (value) {
-                    if (value == null || value.isEmpty || value.length < 6) {
-                      return 'Şifre en az 6 karakter olmalı.';
-                    }
-                    return null;
-                  },
-                ),
-                // Kayıt modundaysa rol seçimi göster
-                if (!isLogin) ...[
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: _selectedRole,
-                    decoration: const InputDecoration(
-                      labelText: 'Hesap Tipi',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'job_seeker',
-                        child: Text('İş Arıyorum'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'employer',
-                        child: Text('İş Verenim'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedRole = value!;
-                      });
-                    },
-                  ),
-                ],
-                const SizedBox(height: 24),
-                authProvider.isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      children: [
+                        Text(
+                          _isLogin ? "Welcome Back" : "Create Account",
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                        onPressed: _submit,
-                        child: Text(isLogin ? 'Giriş Yap' : 'Kayıt Ol'),
-                      ),
-                TextButton(
-                  onPressed: _switchAuthMode,
-                  child: Text(
-                    isLogin
-                        ? 'Hesabınız yok mu? Kayıt Olun'
-                        : 'Zaten bir hesabınız var mı? Giriş Yapın',
+                        const SizedBox(height: 20),
+                        TextFormField(
+                          initialValue:
+                              "employer@test.com", // Test için kolaylık (istersen sil)
+                          decoration: const InputDecoration(
+                            labelText: 'Email Address',
+                            prefixIcon: Icon(Icons.email_outlined),
+                          ),
+                          keyboardType: TextInputType.emailAddress,
+                          validator: (val) =>
+                              (val == null || !val.contains('@'))
+                              ? 'Invalid email'
+                              : null,
+                          onSaved: (val) => _email = val!,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          initialValue: "123456", // Test için kolaylık
+                          decoration: const InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: Icon(Icons.lock_outline),
+                          ),
+                          obscureText: true,
+                          validator: (val) => (val == null || val.length < 6)
+                              ? 'Min 6 characters'
+                              : null,
+                          onSaved: (val) => _password = val!,
+                        ),
+                        if (!_isLogin) ...[
+                          const SizedBox(height: 16),
+                          DropdownButtonFormField(
+                            value: _role,
+                            decoration: const InputDecoration(
+                              labelText: 'I am a...',
+                              prefixIcon: Icon(Icons.person_outline),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'job_seeker',
+                                child: Text('Job Seeker'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'employer',
+                                child: Text('Employer'),
+                              ),
+                            ],
+                            onChanged: (val) =>
+                                setState(() => _role = val.toString()),
+                          ),
+                        ],
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: double.infinity,
+                          // Loading ise dönen yuvarlak, değilse buton göster
+                          child: isLoading
+                              ? const Center(child: CircularProgressIndicator())
+                              : ElevatedButton(
+                                  onPressed: _submit,
+                                  child: Text(_isLogin ? 'Login' : 'Register'),
+                                ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextButton(
+                          onPressed: isLoading
+                              ? null
+                              : () => setState(() => _isLogin = !_isLogin),
+                          child: Text(
+                            _isLogin
+                                ? 'Create new account'
+                                : 'I already have an account',
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

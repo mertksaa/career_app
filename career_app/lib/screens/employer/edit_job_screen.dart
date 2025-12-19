@@ -86,7 +86,7 @@ class _EditJobScreenState extends State<EditJobScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('İlanı Düzenle')),
+      appBar: AppBar(title: const Text('Edit Job')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Form(
@@ -97,42 +97,42 @@ class _EditJobScreenState extends State<EditJobScreen> {
               TextFormField(
                 controller: _titleController,
                 decoration: const InputDecoration(
-                  labelText: 'İlan Başlığı',
+                  labelText: 'Job Title',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) =>
-                    value!.isEmpty ? 'Bu alan boş bırakılamaz' : null,
+                    value!.isEmpty ? 'This field can not be left blank' : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _companyController,
                 decoration: const InputDecoration(
-                  labelText: 'Şirket Adı',
+                  labelText: 'Company title',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) =>
-                    value!.isEmpty ? 'Bu alan boş bırakılamaz' : null,
+                    value!.isEmpty ? 'This field can not be left blank' : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _locationController,
                 decoration: const InputDecoration(
-                  labelText: 'Lokasyon',
+                  labelText: 'Location',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) =>
-                    value!.isEmpty ? 'Bu alan boş bırakılamaz' : null,
+                    value!.isEmpty ? 'This field can not be left blank' : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _descriptionController,
                 decoration: const InputDecoration(
-                  labelText: 'İlan Açıklaması',
+                  labelText: 'Job Description',
                   border: OutlineInputBorder(),
                 ),
                 maxLines: 8,
                 validator: (value) =>
-                    value!.isEmpty ? 'Bu alan boş bırakılamaz' : null,
+                    value!.isEmpty ? 'This field can not be left blank' : null,
               ),
               const SizedBox(height: 24),
               _isLoading
@@ -143,7 +143,7 @@ class _EditJobScreenState extends State<EditJobScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
                       child: const Text(
-                        'Değişiklikleri Kaydet',
+                        'Save Changes',
                         style: TextStyle(color: Colors.white),
                       ),
                     ),

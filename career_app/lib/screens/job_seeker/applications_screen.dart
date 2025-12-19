@@ -16,7 +16,7 @@ class ApplicationsScreen extends StatelessWidget {
           : appliedJobs.isEmpty
           ? const Center(
               child: Text(
-                'Henüz hiç başvuru yapmadınız.',
+                'No applications found.',
                 style: TextStyle(fontSize: 16, color: Colors.grey),
               ),
             )

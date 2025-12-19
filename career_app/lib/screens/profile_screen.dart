@@ -1,179 +1,177 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/auth_provider.dart';
 import 'package:file_picker/file_picker.dart';
+import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  const ProfileScreen({super.key});
 
-  // CV Yükleme Fonksiyonu
   Future<void> _pickAndUploadCv(BuildContext context) async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    if (authProvider.token == null) return;
+    final scaffold = ScaffoldMessenger.of(context);
+    final auth = Provider.of<AuthProvider>(context, listen: false);
 
-    // 1. Kullanıcıdan PDF dosyası seçmesini iste
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
     );
 
     if (result != null) {
-      // 2. Dosya seçildiyse, API servisi üzerinden yükle
-      PlatformFile file = result.files.first;
-      final apiService = ApiService();
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('CV yükleniyor...')));
-
-      final response = await apiService.uploadCv(
-        authProvider.token!,
-        file.path!,
-      );
-
-      // 3. Sonucu kullanıcıya göster ve CV durumunu güncelle
-      if (response['success']) {
-        authProvider.setCvStatus(true); // CV durumunu 'Yüklendi' yap
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('CV başarıyla yüklendi!'),
-            backgroundColor: Colors.green,
-          ),
+      String? filePath = result.files.single.path;
+      if (filePath != null) {
+        scaffold.showSnackBar(
+          const SnackBar(content: Text('Uploading CV... Please wait.')),
         );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Hata: ${response['message']}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        final response = await ApiService().uploadCv(auth.token!, filePath);
+
+        if (response['success']) {
+          auth.setCvStatus(true);
+          scaffold.showSnackBar(
+            const SnackBar(
+              content: Text(
+                'CV uploaded successfully! Recommendations are being updated.',
+              ),
+            ),
+          );
+        } else {
+          scaffold.showSnackBar(SnackBar(content: Text(response['message'])));
+        }
       }
-    } else {
-      // Kullanıcı dosya seçmeyi iptal etti
-      print('Kullanıcı dosya seçmedi.');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // AuthProvider'dan kullanıcı bilgilerini ve CV durumunu al
-    final authProvider = Provider.of<AuthProvider>(context);
-    final user = authProvider.user;
-
-    // Kullanıcı bilgisi henüz yüklenmemişse (teorik olarak olmamalı)
-    if (user == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    // Burada 'listen: true' (varsayılan) kalmalı ki profil bilgileri güncellensin
+    final auth = Provider.of<AuthProvider>(context);
+    final user = auth.user;
 
     return Scaffold(
-      body: ListView(
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          // Profil Kartı
-          Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  const CircleAvatar(
-                    radius: 50,
-                    backgroundColor: Colors.indigoAccent,
-                    child: Icon(Icons.person, size: 60, color: Colors.white),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    user.email,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Chip(
-                    label: Text(
-                      user.role == 'job_seeker' ? 'İş Arayan' : 'İşveren',
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    backgroundColor: Colors.indigo,
-                  ),
-                ],
+      backgroundColor: Theme.of(context).colorScheme.background,
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          children: [
+            const SizedBox(height: 20),
+            CircleAvatar(
+              radius: 50,
+              backgroundColor: Theme.of(context).primaryColor,
+              child: Text(
+                user?.email.substring(0, 1).toUpperCase() ?? "U",
+                style: const TextStyle(
+                  fontSize: 40,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
+            const SizedBox(height: 16),
+            Text(
+              user?.email ?? "No Email",
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              user?.role == 'employer'
+                  ? "Employer Account"
+                  : "Job Seeker Account",
+              style: const TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 40),
+
+            if (user?.role == 'job_seeker') ...[
+              _buildProfileOption(
+                context,
+                icon: Icons.upload_file,
+                title: "Upload New CV",
+                subtitle: auth.hasCv
+                    ? "You have an active CV"
+                    : "No CV uploaded yet",
+                onTap: () => _pickAndUploadCv(context),
+                isHighlight: !auth.hasCv,
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // --- GÜVENLİ ÇIKIŞ BUTONU ---
+            _buildProfileOption(
+              context,
+              icon: Icons.logout,
+              title: "Log Out",
+              subtitle: "Sign out from your account",
+              onTap: () async {
+                // 1. Dinlemeyen (listen: false) bir provider örneği al
+                final authProvider = Provider.of<AuthProvider>(
+                  context,
+                  listen: false,
+                );
+
+                // 2. Çıkış işleminin bitmesini bekle
+                await authProvider.logout();
+
+                // 3. Ekran hala açıksa güvenli yönlendirme yap
+                if (context.mounted) {
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil('/auth', (route) => false);
+                }
+              },
+              isDestructive: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileOption(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    bool isDestructive = false,
+    bool isHighlight = false,
+  }) {
+    return Card(
+      elevation: 0,
+      color: isHighlight
+          ? Theme.of(context).primaryColor.withOpacity(0.05)
+          : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: isHighlight
+            ? BorderSide(color: Theme.of(context).primaryColor)
+            : BorderSide.none,
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: isDestructive
+                ? Colors.red.withOpacity(0.1)
+                : Theme.of(context).primaryColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
           ),
-          const SizedBox(height: 24),
-
-          // Sadece iş arayanlar için CV Yönetimi Kartı
-          if (user.role == 'job_seeker')
-            Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: ListTile(
-                leading: Icon(
-                  authProvider.hasCv ? Icons.check_circle : Icons.cancel,
-                  color: authProvider.hasCv ? Colors.green : Colors.red,
-                ),
-                title: const Text('CV Yönetimi'),
-                subtitle: Text(
-                  authProvider.hasCv ? 'CV Yüklendi' : 'CV Yüklenmedi',
-                ),
-                trailing: ElevatedButton(
-                  onPressed: () {
-                    // Artık gerçek yükleme fonksiyonunu çağırıyoruz
-                    _pickAndUploadCv(context);
-                  },
-                  child: Text(authProvider.hasCv ? 'Değiştir' : 'Yükle'),
-                ),
-              ),
-            ),
-
-          const SizedBox(height: 24),
-
-          // Çıkış Yap Butonu
-          ListTile(
-            leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text('Çıkış Yap', style: TextStyle(color: Colors.red)),
-            onTap: () {
-              // Onay diyaloğu göster
-              showDialog(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('Çıkış Yap'),
-                  content: const Text(
-                    'Çıkış yapmak istediğinizden emin misiniz?',
-                  ),
-                  actions: [
-                    TextButton(
-                      child: const Text('İptal'),
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                      },
-                    ),
-                    TextButton(
-                      child: const Text(
-                        'Evet',
-                        style: TextStyle(color: Colors.red),
-                      ),
-                      onPressed: () {
-                        Navigator.of(ctx).pop(); // Diyaloğu kapat
-                        Provider.of<AuthProvider>(
-                          context,
-                          listen: false,
-                        ).logout();
-                      },
-                    ),
-                  ],
-                ),
-              );
-            },
+          child: Icon(
+            icon,
+            color: isDestructive ? Colors.red : Theme.of(context).primaryColor,
           ),
-        ],
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: isDestructive ? Colors.red : Colors.black87,
+          ),
+        ),
+        subtitle: Text(subtitle),
+        trailing: const Icon(
+          Icons.arrow_forward_ios,
+          size: 16,
+          color: Colors.grey,
+        ),
+        onTap: onTap,
       ),
     );
   }

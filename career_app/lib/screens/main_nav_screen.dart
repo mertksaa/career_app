@@ -69,21 +69,24 @@ class _MainNavScreenState extends State<MainNavScreen> {
 
   // İş Arayan için alt navigasyon barları
   final List<BottomNavigationBarItem> _jobSeekerItems = [
-    const BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'İlanlar'),
+    const BottomNavigationBarItem(
+      icon: Icon(Icons.list_alt),
+      label: 'Job postings',
+    ),
     const BottomNavigationBarItem(
       icon: Icon(Icons.favorite_border),
       activeIcon: Icon(Icons.favorite),
-      label: 'Favoriler',
+      label: 'Favorites',
     ),
     const BottomNavigationBarItem(
       icon: Icon(Icons.article_outlined),
       activeIcon: Icon(Icons.article),
-      label: 'Başvurularım',
+      label: 'My Applications',
     ),
     const BottomNavigationBarItem(
       icon: Icon(Icons.person_outline),
       activeIcon: Icon(Icons.person),
-      label: 'Profil',
+      label: 'Profile',
     ),
   ];
 
@@ -91,17 +94,17 @@ class _MainNavScreenState extends State<MainNavScreen> {
   final List<BottomNavigationBarItem> _employerItems = [
     const BottomNavigationBarItem(
       icon: Icon(Icons.list_alt),
-      label: 'İlanlarım',
+      label: 'My Job Postings',
     ),
     const BottomNavigationBarItem(
       icon: Icon(Icons.add_circle_outline),
       activeIcon: Icon(Icons.add_circle),
-      label: 'İlan Yayınla',
+      label: 'Publish a Job',
     ),
     const BottomNavigationBarItem(
       icon: Icon(Icons.person_outline),
       activeIcon: Icon(Icons.person),
-      label: 'Profil',
+      label: 'Profile',
     ),
   ];
 

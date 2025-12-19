@@ -92,7 +92,7 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.jobTitle} - Başvuranlar')),
+      appBar: AppBar(title: Text('${widget.jobTitle} - Applicants')),
       body: RefreshIndicator(
         onRefresh: _refreshApplicants,
         child: FutureBuilder<List<Applicant>>(
@@ -114,14 +114,14 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'Başvuranlar yüklenirken bir hata oluştu.\n(${snapshot.error})',
+                        'error occured while loading the applicants.\n(${snapshot.error})',
                         style: TextStyle(fontSize: 16, color: Colors.grey[700]),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 20),
                       ElevatedButton.icon(
                         icon: const Icon(Icons.refresh),
-                        label: const Text('Tekrar Dene'),
+                        label: const Text('Try Again'),
                         onPressed: _refreshApplicants,
                       ),
                     ],
@@ -150,7 +150,7 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
                               ),
                               const SizedBox(height: 16),
                               const Text(
-                                'Henüz başvuran yok.',
+                                'No applicants yet.',
                                 style: TextStyle(
                                   fontSize: 18,
                                   color: Colors.grey,
@@ -159,7 +159,7 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                'Listeyi yenilemek için aşağı çekin.',
+                                'Pull down to refresh the list.',
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: Colors.grey[600],
@@ -205,7 +205,7 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
                     title: Text(applicant.email),
                     // applicant.applicationDate artık modelden (Düzeltme 1) geliyor
                     subtitle: Text(
-                      'Başvuru: ${_formatDate(applicant.applicationDate)}',
+                      'Application: ${_formatDate(applicant.applicationDate)}',
                     ),
                     trailing: applicant.hasCv
                         ? Tooltip(
@@ -235,7 +235,7 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
                             ),
                           )
                         : Text(
-                            'CV Yok',
+                            'No CV',
                             style: TextStyle(
                               color: Colors.red[700],
                               fontStyle: FontStyle.italic,

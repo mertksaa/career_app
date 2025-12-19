@@ -1,146 +1,106 @@
-# backend/nlp_service.py
 import spacy
+from spacy.pipeline import EntityRuler
 import json
-import re
 import os
 
-APP_DIR = os.path.dirname(__file__)
-SKILLS_PATH = os.path.join(APP_DIR, "skills.json")
+class NLPService:
+    def __init__(self):
+        print("NLP Modeli yükleniyor (en_core_web_md)...")
+        try:
+            self.nlp = spacy.load("en_core_web_md")
+        except OSError:
+            print("Model bulunamadı! 'python -m spacy download en_core_web_md' çalıştırın.")
+            raise
 
-# --- Regex Patterns for PII ---
-# E-posta için daha basit ve yaygın kullanılan bir regex
-EMAIL_REGEX = r"[\w\.-]+@[\w\.-]+\.\w+"
+        # Skill listesini yükle ve Entity Ruler'a ekle
+        self._add_skill_ruler()
 
-# Basit bir telefon regex'i (farklı formatları yakalamak için geliştirilebilir)
-PHONE_REGEX = r"(\+?\d{1,3}[\s-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}"
+        # Ağırlıklandırma için anahtar kelimeler
+        self.must_have_keywords = ["required", "must", "essential", "core", "mandatory", "minimum", "proficiency"]
+        self.nice_to_have_keywords = ["plus", "bonus", "preferred", "advantage", "desirable", "nice to have"]
 
-
-def load_skills(skills_path: str) -> list:
-    """JSON dosyasından yetenek listesini okur."""
-    try:
-        with open(skills_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"Uyarı: {skills_path} bulunamadı. Yetenekler yüklenemedi.")
-        return []
-    except json.JSONDecodeError:
-        print(f"Hata: {skills_path} dosyası bozuk JSON formatında.")
-        return []
-
-def create_skill_patterns(skills: list) -> list:
-    """
-    Basit yetenek listesini spaCy EntityRuler formatına dönüştürür.
-    Örn: "Python" -> [{"label": "SKILL", "pattern": [{"lower": "python"}]}]
-    Örn: "Project Management" -> [{"label": "SKILL", "pattern": [{"lower": "project"}, {"lower": "management"}]}]
-    """
-    patterns = []
-    for skill in skills:
-        words = skill.split()
-        pattern = [{"lower": word.lower()} for word in words]
-        patterns.append({"label": "SKILL", "pattern": pattern, "id": skill})
-    return patterns
-
-def load_nlp_model():
-    """
-    spaCy modelini yükler ve EntityRuler'ı özel yeteneklerle günceller.
-    """
-    print("NLP modeli ve yetenekler yükleniyor...")
-    try:
-        # 'en_core_web_lg' modelini yükle
-        nlp = spacy.load("en_core_web_lg")
-    except OSError:
-        print("Hata: 'en_core_web_lg' modeli bulunamadı.")
-        print("Lütfen 'python -m spacy download en_core_web_lg' komutu ile indirin.")
-        # Model yüklenemezse, sadece yetenekleri tanıyan boş bir model oluştur
-        nlp = spacy.blank("en")
-
-    # Yetenekleri JSON'dan yükle
-    skills = load_skills(SKILLS_PATH)
-    # Yetenekleri spaCy pattern'larına dönüştür
-    skill_patterns = create_skill_patterns(skills)
-
-    # Mevcut pipeline'a EntityRuler ekle
-    if "entity_ruler" not in nlp.pipe_names:
-        ruler = nlp.add_pipe("entity_ruler", before="ner")
-    else:
-        ruler = nlp.get_pipe("entity_ruler")
-    
-    ruler.add_patterns(skill_patterns)
-    print("NLP modeli başarıyla yüklendi.")
-    return nlp
-
-# Modeli global olarak yükle (uygulama başladığında bir kez)
-# Bu, her analyze çağrısında modeli tekrar yüklemenin önüne geçer.
-NLP = load_nlp_model()
-
-
-def analyze_text(text: str) -> dict:
-    """
-    Bir metni analiz eder ve yapılandırılmış bilgileri (yetenekler, e-posta, telefon) çıkarır.
-    """
-    if not text:
-        return {"skills": [], "emails": [], "phones": []}
-    
-    doc = NLP(text)
-    
-    # --- Yetenekleri Çıkar (EntityRuler ve NER kullanarak) ---
-    # Modelin 'SKILL' olarak etiketlediklerini ve 'ORG' (organizasyon, örn: Microsoft)
-    # ve 'PRODUCT' (ürün, örn: TensorFlow) olarak etiketlediklerini topla.
-    # 'id' kullanarak orijinal (büyük/küçük harf duyarlı) yetenek ismini alıyoruz.
-    skills = set()
-    for ent in doc.ents:
-        if ent.label_ == "SKILL":
-            skills.add(ent.id_) # Bizim tanımladığımız ID (örn: "Python")
+    def _add_skill_ruler(self):
+        # Mevcut skill listesini oku
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        skills_path = os.path.join(current_dir, "skills.json")
         
-        # Ekstra: Modelin zaten bildiği teknoloji/ürünleri de ekleyelim
-        elif ent.label_ in ["PRODUCT", "ORG"]:
-            # 'skills.json' listesindeki bir yetenekle eşleşiyor mu diye kontrol et
-            # Bu, "TensorFlow" (PRODUCT) veya "Azure" (ORG) gibi şeyleri yakalar
-            normalized_ent = ent.text.lower()
-            for skill_pattern in NLP.get_pipe("entity_ruler").patterns:
-                pattern_text = " ".join([p["lower"] for p in skill_pattern["pattern"]])
-                if normalized_ent == pattern_text:
-                    skills.add(skill_pattern["id"])
-                    break
+        try:
+            with open(skills_path, "r", encoding="utf-8") as f:
+                skills_data = json.load(f)
+        except FileNotFoundError:
+            print("UYARI: skills.json bulunamadı. Boş liste kullanılıyor.")
+            skills_data = []
 
-    # --- E-posta ve Telefonları Çıkar (Regex kullanarak) ---
-    emails = re.findall(EMAIL_REGEX, text, re.IGNORECASE)
-    phones = re.findall(PHONE_REGEX, text)
-    
-    # Sonuçları temizle ve tekilleştir
-    results = {
-        "skills": sorted(list(skills)),
-        "emails": sorted(list(set(emails))),
-        "phones": sorted(list(set(phones)))
-    }
-    
-    return results
+        # Entity Ruler oluştur
+        if "entity_ruler" not in self.nlp.pipe_names:
+            ruler = self.nlp.add_pipe("entity_ruler", before="ner")
+        else:
+            ruler = self.nlp.get_pipe("entity_ruler")
 
-# --- Test için ---
-if __name__ == "__main__":
-    test_cv_text = """
-    John Doe
-    Software Developer
-    john.doe@email.com | (555) 123-4567 | +1-555-987-6543
-    
-    Summary:
-    Experienced software engineer with 5+ years in Python, FastAPI, and React.
-    Passionate about building scalable microservices and working with AWS.
-    Also skilled in Project Management and Agile methodologies.
-    
-    Experience:
-    Sr. Developer at TechCorp (Product: TensorFlow Analytics)
-    - Developed APIs using python.
-    
-    Education:
-    B.Sc. in Computer Science
-    
-    My Skills:
-    - java
-    - node.js
-    - Microsoft Azure
-    """
-    
-    analysis_result = analyze_text(test_cv_text)
-    print("\n--- ANALİZ SONUCU ---")
-    print(json.dumps(analysis_result, indent=2, ensure_ascii=False))
+        patterns = []
+        for skill in skills_data:
+            # Hem tam eşleşme hem de büyük/küçük harf duyarsız (LOWER) desenler
+            patterns.append({"label": "SKILL", "pattern": [{"LOWER": word.lower()} for word in skill.split()]})
+        
+        ruler.add_patterns(patterns)
+
+    def analyze_text(self, text: str):
+        """
+        Eski yöntem (Geriye dönük uyumluluk için).
+        Sadece yetenek listesi (set) döndürür.
+        """
+        doc = self.nlp(text)
+        skills = set()
+        for ent in doc.ents:
+            if ent.label_ == "SKILL":
+                skills.add(ent.text)
+        return list(skills)
+
+    def analyze_job_description(self, text: str):
+        """
+        YENİ YÖNTEM: İlan metnini analiz eder ve yetenekleri ağırlıklandırır.
+        """
+        doc = self.nlp(text)
+        
+        must_have_skills = set()
+        nice_to_have_skills = set()
+        normal_skills = set()
+
+        # Cümle cümle analiz et
+        for sent in doc.sents:
+            sentence_text = sent.text.lower()
+            
+            # Bu cümlede geçen yetenekleri bul
+            sent_skills = set()
+            for ent in sent.ents:
+                if ent.label_ == "SKILL":
+                    sent_skills.add(ent.text)
+            
+            if not sent_skills:
+                continue
+
+            # Cümlenin bağlamına (context) bak
+            is_must = any(keyword in sentence_text for keyword in self.must_have_keywords)
+            is_nice = any(keyword in sentence_text for keyword in self.nice_to_have_keywords)
+
+            if is_must:
+                must_have_skills.update(sent_skills)
+            elif is_nice:
+                nice_to_have_skills.update(sent_skills)
+            else:
+                normal_skills.update(sent_skills)
+
+        # Çakışmaları temizle (Eğer bir yetenek hem must hem nice listesindeyse, must kalsın)
+        nice_to_have_skills -= must_have_skills
+        normal_skills -= must_have_skills
+        normal_skills -= nice_to_have_skills
+
+        return {
+            "must_have": list(must_have_skills),
+            "nice_to_have": list(nice_to_have_skills),
+            "normal": list(normal_skills),
+            "all_skills": list(must_have_skills | nice_to_have_skills | normal_skills)
+        }
+
+# Global instance (main.py tarafından kullanılacak)
+nlp_service = NLPService()

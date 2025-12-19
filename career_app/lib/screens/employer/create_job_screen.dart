@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/snackbar_provider.dart';
 import '../../services/api_service.dart';
-import '../main_nav_screen.dart'; // Sekme değiştirmek için
+import '../main_nav_screen.dart';
 
 class CreateJobScreen extends StatefulWidget {
   const CreateJobScreen({Key? key}) : super(key: key);
@@ -88,25 +88,25 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
               children: [
                 _buildTextFormField(
                   controller: _titleController,
-                  labelText: 'İlan Başlığı',
+                  labelText: 'Job Title',
                   icon: Icons.title,
                 ),
                 const SizedBox(height: 16),
                 _buildTextFormField(
                   controller: _companyController,
-                  labelText: 'Şirket Adı',
+                  labelText: 'Company Title',
                   icon: Icons.business,
                 ),
                 const SizedBox(height: 16),
                 _buildTextFormField(
                   controller: _locationController,
-                  labelText: 'Konum (örn: İstanbul, Türkiye)',
+                  labelText: 'Location',
                   icon: Icons.location_on,
                 ),
                 const SizedBox(height: 16),
                 _buildTextFormField(
                   controller: _descriptionController,
-                  labelText: 'İlan Açıklaması ve Gereksinimler',
+                  labelText: 'Job Description and Requirements',
                   icon: Icons.description,
                   maxLines: 8,
                 ),
@@ -116,7 +116,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                     : ElevatedButton.icon(
                         onPressed: _submitForm,
                         icon: const Icon(Icons.publish),
-                        label: const Text('İlanı Yayınla'),
+                        label: const Text('Publish Job'),
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
@@ -149,7 +149,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
       maxLines: maxLines,
       validator: (value) {
         if (value == null || value.trim().isEmpty) {
-          return 'Bu alan boş bırakılamaz.';
+          return 'This field cannot be left blank.';
         }
         return null;
       },

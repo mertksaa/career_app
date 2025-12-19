@@ -19,7 +19,7 @@ class FavoritesScreen extends StatelessWidget {
           : favoriteJobs.isEmpty
           ? const Center(
               child: Text(
-                'Henüz favori ilanınız yok.',
+                'No favorite jobs yet.',
                 style: TextStyle(fontSize: 16, color: Colors.grey),
               ),
             )

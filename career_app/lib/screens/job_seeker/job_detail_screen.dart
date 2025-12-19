@@ -54,7 +54,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
 
     if (!authProvider.hasCv) {
       snackbar.showSnackbar(
-        'Başvuru yapabilmek için önce CV yüklemelisiniz.',
+        'Upload your CV in your profile to apply for jobs.',
         isError: true,
       );
       setState(() => _isApplying = false);
@@ -80,7 +80,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     final authProvider = Provider.of<AuthProvider>(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('İlan Detayı')),
+      appBar: AppBar(title: const Text('Job Details')),
       body: FutureBuilder<Map<String, dynamic>>(
         future: _combinedFuture,
         builder: (context, snapshot) {
@@ -130,7 +130,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                             Expanded(
                               // Konum taşmaması için Expanded
                               child: Text(
-                                job.location ?? 'Konum Yok',
+                                job.location ?? 'No location',
                                 style: TextStyle(
                                   fontSize: 16,
                                   color: Colors.grey[700],
@@ -154,7 +154,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                     padding: const EdgeInsets.only(bottom: 16.0),
                     child: Center(
                       child: Text(
-                        'Yetenek analizi için lütfen profilinizden CV yükleyin.',
+                        'Upload your CV to see skill analysis for this job.',
                         style: TextStyle(color: Colors.grey[600]),
                         textAlign: TextAlign.center,
                       ),
@@ -179,7 +179,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'İlan Açıklaması',
+                          'Job Description',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -187,7 +187,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                         ),
                         const Divider(height: 20, thickness: 1),
                         Text(
-                          job.description ?? 'Açıklama bulunmuyor.',
+                          job.description ?? 'No Description provided.',
                           style: const TextStyle(fontSize: 15, height: 1.5),
                         ),
                       ],
@@ -219,10 +219,10 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                           ),
                     label: Text(
                       _isApplying
-                          ? 'Başvuruluyor...'
+                          ? 'Applying...'
                           : (authProvider.hasCv
-                                ? 'Hemen Başvur'
-                                : 'Başvuru için CV Gerekli'),
+                                ? 'Apply Now'
+                                : 'CV required to apply'),
                     ),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -258,12 +258,12 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Kariyer Analizi',
+              'Carrier Fit Analysis',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const Divider(height: 20, thickness: 1),
             Text(
-              'Uygunluk Skoru: ${(analysis.matchScore * 100).toStringAsFixed(0)}%',
+              'Match score: ${(analysis.matchScore * 100).toStringAsFixed(0)}%',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -282,14 +282,14 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
             ),
             const SizedBox(height: 20),
             _buildSkillChipList(
-              'Eşleşen Yetenekleriniz',
+              'matched Skills',
               analysis.matchedSkills,
               Colors.green[700]!,
               Icons.check_circle_outline,
             ),
             const SizedBox(height: 16),
             _buildSkillChipList(
-              'Eksik Yetenekler',
+              'missing Skills',
               analysis.missingSkills,
               Colors.red[700]!,
               Icons.warning_amber_rounded,
@@ -327,9 +327,9 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
         const SizedBox(height: 8),
         if (skills.isEmpty)
           Text(
-            title == 'Eksik Yetenekler'
-                ? 'Tüm gereksinimleri karşılıyorsunuz. Harika!'
-                : 'CV\'niz ile ilandan eşleşen bir yetenek bulunamadı.',
+            title == 'missing Skills'
+                ? 'All skills matched from your CV!'
+                : 'There are no matched skills from your CV.',
             style: TextStyle(fontSize: 14, color: Colors.grey[600]),
           )
         else
@@ -367,10 +367,6 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
       return const SizedBox.shrink(); // Boş widget döndür
     }
 
-    // TODO: Eğer ileride company_profile bilgisi eklenirse,
-    // buraya 'ReadMoreText' gibi bir widget ile "Tamamını Oku" eklenebilir.
-    // Şimdilik sadece şirket adını gösteriyoruz.
-
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -381,7 +377,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Şirket Bilgileri',
+              'Company Information',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const Divider(height: 20, thickness: 1),

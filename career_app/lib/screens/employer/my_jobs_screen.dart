@@ -46,15 +46,15 @@ class _MyJobsScreenState extends State<MyJobsScreen> {
     final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('İlanı Sil'),
-        content: const Text('Bu ilanı silmek istediğinizden emin misiniz?'),
+        title: const Text('Delete posting'),
+        content: const Text('Are you sure you want to delete this posting?'),
         actions: [
           TextButton(
-            child: const Text('İptal'),
+            child: const Text('cancel'),
             onPressed: () => Navigator.of(ctx).pop(false),
           ),
           TextButton(
-            child: const Text('Sil', style: TextStyle(color: Colors.red)),
+            child: const Text('delete', style: TextStyle(color: Colors.red)),
             onPressed: () => Navigator.of(ctx).pop(true),
           ),
         ],
@@ -115,11 +115,11 @@ class _MyJobsScreenState extends State<MyJobsScreen> {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             } else if (snapshot.hasError) {
-              return Center(child: Text('Bir hata oluştu: ${snapshot.error}'));
+              return Center(child: Text('Error occured: ${snapshot.error}'));
             } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
               return const Center(
                 child: Text(
-                  'Henüz yayınladığınız bir ilan yok.',
+                  'No postings yet.',
                   style: TextStyle(fontSize: 16, color: Colors.grey),
                 ),
               );

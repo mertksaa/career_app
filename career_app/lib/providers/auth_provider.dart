@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../models/user_model.dart'; // Yeni User modelimizi import ediyoruz
+import '../models/user_model.dart';
 import '../services/api_service.dart';
 
 class AuthProvider with ChangeNotifier {
@@ -14,33 +14,29 @@ class AuthProvider with ChangeNotifier {
   String? _errorMessage;
   bool _isAuthCheckComplete = false;
 
-  // Getter'lar
   String? get token => _token;
   User? get user => _user;
   bool get hasCv => _hasCv;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
-  bool get isAuthenticated =>
-      _token != null && _user != null; // Artık user'ı da kontrol ediyoruz
+  bool get isAuthenticated => _token != null && _user != null;
   bool get isAuthCheckComplete => _isAuthCheckComplete;
 
   AuthProvider() {
     tryAutoLogin();
   }
+
   void setCvStatus(bool hasCv) {
     _hasCv = hasCv;
     notifyListeners();
   }
 
-  // ... (register fonksiyonu aynı kalıyor) ...
   Future<bool> register(String email, String password, String role) async {
-    // ...
-    // Bu fonksiyonun içeriği aynı, dokunmuyoruz.
-    // ...
     _setLoading(true);
     _setError(null);
     final result = await _apiService.register(email, password, role);
     _setLoading(false);
+
     if (result['success']) {
       return true;
     } else {
@@ -59,12 +55,19 @@ class AuthProvider with ChangeNotifier {
       _token = result['data']['access_token'];
       await _storage.write(key: 'auth_token', value: _token);
 
-      // Giriş başarılıysa, hemen kullanıcı bilgilerini çek
-      await _fetchAndSetUser();
+      // Token alındı, şimdi kullanıcı detaylarını çekmeyi ZORUNLU kılıyoruz
+      final userSuccess = await _fetchAndSetUser();
 
-      _setError(null);
       _setLoading(false);
-      return true;
+
+      // Eğer kullanıcı bilgisi çekilemediyse girişi başarısız say
+      if (userSuccess) {
+        return true;
+      } else {
+        _setError("Giriş başarılı ancak profil bilgileri alınamadı.");
+        await logout(); // Temizle
+        return false;
+      }
     } else {
       _setError(result['message']);
       _setLoading(false);
@@ -74,7 +77,7 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> logout() async {
     _token = null;
-    _user = null; // Kullanıcıyı da temizle
+    _user = null;
     await _storage.delete(key: 'auth_token');
     notifyListeners();
   }
@@ -83,7 +86,6 @@ class AuthProvider with ChangeNotifier {
     _token = await _storage.read(key: 'auth_token');
     if (_token != null) {
       print("Token found, fetching user details...");
-      // Token varsa kullanıcı bilgilerini çekmeyi dene
       await _fetchAndSetUser();
     } else {
       print("No token found.");
@@ -92,33 +94,31 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Yeni özel fonksiyon: Token kullanarak kullanıcı bilgilerini çeker ve state'i günceller
-  Future<void> _fetchAndSetUser() async {
-    if (_token == null) return;
+  // Bu fonksiyon artık başarı durumunu (true/false) dönüyor
+  Future<bool> _fetchAndSetUser() async {
+    if (_token == null) return false;
 
-    // 1. Kullanıcı bilgilerini çek (mevcut kod)
-    final result = await _apiService.getUserDetails(_token!);
+    try {
+      final result = await _apiService.getUserDetails(_token!);
+      if (result['success']) {
+        _user = User.fromJson(result['data']);
 
-    if (result['success']) {
-      _user = User.fromJson(result['data']);
-
-      // 2. YENİ BÖLÜM: Kullanıcı bilgileri BAŞARIYLA alındıysa, CV durumunu da çek
-      try {
-        final bool cvStatus = await _apiService.getCvStatus(_token!);
-        _hasCv = cvStatus;
-        print("CV Status fetched: $_hasCv");
-      } catch (e) {
-        print("CV Status çekilirken hata: $e");
-        _hasCv = false; // Hata olursa 'yok' varsay
+        // CV Durumunu Çek
+        try {
+          final bool cvStatus = await _apiService.getCvStatus(_token!);
+          _hasCv = cvStatus;
+        } catch (_) {
+          _hasCv = false;
+        }
+        notifyListeners();
+        return true;
       }
-    } else {
-      // Eğer token geçersizse veya başka bir hata olursa çıkış yap
-      print("Failed to fetch user, logging out.");
-      await logout();
+    } catch (e) {
+      print("User fetch error: $e");
     }
+    return false;
   }
 
-  // Bu private helper'ları da ekleyelim
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
@@ -126,5 +126,6 @@ class AuthProvider with ChangeNotifier {
 
   void _setError(String? message) {
     _errorMessage = message;
+    notifyListeners(); // Hata mesajı geldiğinde ekranı güncellesin
   }
 }
