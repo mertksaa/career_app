@@ -1,25 +1,23 @@
 class Applicant {
   final int userId;
   final String email;
-  final bool hasCv;
   final String applicationDate;
-  final String? lastUpdated;
+  final double matchScore;
 
   Applicant({
     required this.userId,
     required this.email,
-    required this.hasCv,
     required this.applicationDate,
-    this.lastUpdated,
+    required this.matchScore,
   });
 
   factory Applicant.fromJson(Map<String, dynamic> json) {
     return Applicant(
-      userId: json['user_id'],
-      email: json['email'],
-      hasCv: json['has_cv'] == 1 || json['has_cv'] == true,
+      userId: json['user_id'] ?? 0,
+      email: json['email'] ?? '',
       applicationDate: json['application_date'] ?? '',
-      lastUpdated: json['last_updated'],
+      // Backend'den sayı veya null gelebilir, double'a çeviriyoruz
+      matchScore: (json['match_score'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }

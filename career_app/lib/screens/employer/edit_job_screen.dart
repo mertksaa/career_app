@@ -7,10 +7,10 @@ import '../../services/api_service.dart';
 class EditJobScreen extends StatefulWidget {
   final Job job;
 
-  const EditJobScreen({Key? key, required this.job}) : super(key: key);
+  const EditJobScreen({super.key, required this.job});
 
   @override
-  _EditJobScreenState createState() => _EditJobScreenState();
+  State<EditJobScreen> createState() => _EditJobScreenState();
 }
 
 class _EditJobScreenState extends State<EditJobScreen> {
@@ -24,54 +24,13 @@ class _EditJobScreenState extends State<EditJobScreen> {
   @override
   void initState() {
     super.initState();
-    // Controller'ları mevcut ilan bilgileriyle başlat
+    // Mevcut verileri doldur
     _titleController = TextEditingController(text: widget.job.title);
     _companyController = TextEditingController(text: widget.job.company);
     _locationController = TextEditingController(text: widget.job.location);
     _descriptionController = TextEditingController(
       text: widget.job.description,
     );
-  }
-
-  Future<void> _submitForm() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _isLoading = true;
-    });
-
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final apiService = ApiService();
-
-    // KESİN DÜZELTME: 'createJob' yerine 'updateJob' fonksiyonunu çağırıyoruz.
-    final result = await apiService.updateJob(
-      authProvider.token!,
-      widget.job.id, // Güncellenecek ilanın ID'si
-      _titleController.text,
-      _descriptionController.text,
-      _locationController.text,
-      _companyController.text,
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _isLoading = false;
-    });
-
-    // Artık _handleResponse doğru çalıştığı için bu kısım da çalışacak.
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(result['message']),
-        backgroundColor: result['success'] ? Colors.green : Colors.red,
-      ),
-    );
-
-    if (result['success']) {
-      // Başarılı olursa bir önceki sayfaya geri dön
-      Navigator.of(context).pop(
-        true,
-      ); // Geri dönerken 'true' değeri göndererek listenin yenilenmesini sağlayabiliriz.
-    }
   }
 
   @override
@@ -83,70 +42,103 @@ class _EditJobScreenState extends State<EditJobScreen> {
     super.dispose();
   }
 
+  void _updateJob() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final response = await ApiService().updateJob(
+      auth.token!,
+      widget.job.id,
+      _titleController.text,
+      _descriptionController.text,
+      _locationController.text,
+      _companyController.text,
+    );
+
+    setState(() => _isLoading = false);
+
+    if (!mounted) return;
+
+    if (response['success'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Job updated successfully!")),
+      );
+      Navigator.pop(context, true); // true: Güncelleme yapıldı sinyali
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(response['message'] ?? "Update failed")),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Edit Job')),
+      appBar: AppBar(
+        title: const Text("Edit Job"),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 1,
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               TextFormField(
                 controller: _titleController,
                 decoration: const InputDecoration(
-                  labelText: 'Job Title',
+                  labelText: "Job Title",
                   border: OutlineInputBorder(),
                 ),
-                validator: (value) =>
-                    value!.isEmpty ? 'This field can not be left blank' : null,
+                validator: (v) => v!.isEmpty ? "Title required" : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _companyController,
                 decoration: const InputDecoration(
-                  labelText: 'Company title',
+                  labelText: "Company",
                   border: OutlineInputBorder(),
                 ),
-                validator: (value) =>
-                    value!.isEmpty ? 'This field can not be left blank' : null,
+                validator: (v) => v!.isEmpty ? "Company required" : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _locationController,
                 decoration: const InputDecoration(
-                  labelText: 'Location',
+                  labelText: "Location",
                   border: OutlineInputBorder(),
                 ),
-                validator: (value) =>
-                    value!.isEmpty ? 'This field can not be left blank' : null,
+                validator: (v) => v!.isEmpty ? "Location required" : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _descriptionController,
+                maxLines: 5,
                 decoration: const InputDecoration(
-                  labelText: 'Job Description',
+                  labelText: "Description",
                   border: OutlineInputBorder(),
                 ),
-                maxLines: 8,
-                validator: (value) =>
-                    value!.isEmpty ? 'This field can not be left blank' : null,
+                validator: (v) => v!.isEmpty ? "Description required" : null,
               ),
               const SizedBox(height: 24),
-              _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ElevatedButton(
-                      onPressed: _submitForm,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: const Text(
-                        'Save Changes',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _updateJob,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("Save Changes"),
+                ),
+              ),
             ],
           ),
         ),

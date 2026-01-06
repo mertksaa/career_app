@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../models/job_model.dart';
 import '../../models/recommended_job_model.dart';
 import '../../widgets/job_card.dart';
-import '../../providers/auth_provider.dart';
 import 'job_detail_screen.dart';
+import 'favorites_screen.dart';
+import 'my_applications_screen.dart';
+import '../auth_screen.dart';
 
 class JobListScreen extends StatefulWidget {
   const JobListScreen({super.key});
@@ -17,55 +20,74 @@ class JobListScreen extends StatefulWidget {
 class _JobListScreenState extends State<JobListScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final ApiService _apiService = ApiService();
 
-  late Future<List<RecommendedJob>> _recommendedJobsFuture;
-  late Future<List<Job>> _allJobsFuture;
+  // -- FİLTRELEME DEĞİŞKENLERİ --
+  String _selectedLocation = "All";
+  final List<String> _locations = [
+    "All",
+    "Remote",
+    "Istanbul",
+    "Ankara",
+    "Izmir",
+    "New York",
+    "London",
+    "Berlin",
+  ];
+
+  // -- ARAMA DEĞİŞKENLERİ --
+  final TextEditingController _searchController = TextEditingController();
+  String? _currentSearchQuery; // API'ye gönderilecek olan kelime
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-
-    // Ekran açılırken verileri çek
-    _refreshJobs();
-  }
-
-  void _refreshJobs() {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final token = authProvider.token;
-
-    if (token != null) {
-      setState(() {
-        _recommendedJobsFuture = _apiService.getRecommendedJobs(token);
-
-        _allJobsFuture = _apiService.getJobs(token);
-      });
-    } else {
-      setState(() {
-        _recommendedJobsFuture = Future.value([]);
-        _allJobsFuture = Future.value([]);
-      });
-      print("Hata: Token bulunamadı!");
-    }
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  // Önerilenleri Çek
+  Future<List<RecommendedJob>> _fetchRecommended() async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    return ApiService().getRecommendedJobs(
+      auth.token!,
+      location: _selectedLocation,
+    );
+  }
+
+  // Tüm İlanları Çek (Aramalı)
+  Future<List<Job>> _fetchAllJobs() async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    return ApiService().getJobs(
+      auth.token!,
+      searchQuery: _currentSearchQuery, // Arama kelimesini buraya gönderiyoruz
+    );
+  }
+
+  // Arama işlemini tetikleyen fonksiyon
+  void _performSearch() {
+    setState(() {
+      // Eğer kutu boşsa null yap ki tümünü getirsin
+      _currentSearchQuery = _searchController.text.trim().isEmpty
+          ? null
+          : _searchController.text.trim();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text(
-          'İş İlanları',
-          style: TextStyle(fontWeight: FontWeight.bold),
+          "Job Listings",
+          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
-        centerTitle: false,
         backgroundColor: Colors.white,
         elevation: 0,
         bottom: TabBar(
@@ -73,132 +95,193 @@ class _JobListScreenState extends State<JobListScreen>
           labelColor: Theme.of(context).primaryColor,
           unselectedLabelColor: Colors.grey,
           indicatorColor: Theme.of(context).primaryColor,
-          indicatorWeight: 3,
-          labelStyle: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
           tabs: const [
-            Tab(text: 'Size Özel'),
-            Tab(text: 'Tüm İlanlar'),
+            Tab(text: "Recommended For You"),
+            Tab(text: "All Jobs"),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [_buildRecommendedTab(), _buildAllJobsTab()],
-      ),
-    );
-  }
-
-  Widget _buildRecommendedTab() {
-    return FutureBuilder<List<RecommendedJob>>(
-      future: _recommendedJobsFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        } else if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                const SizedBox(height: 16),
-                Text(
-                  'Bir hata oluştu:\n${snapshot.error}',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: _refreshJobs,
-                  child: const Text("Tekrar Dene"),
-                ),
-              ],
-            ),
-          );
-        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return _buildEmptyState(
-            "Henüz size özel bir öneri yok.\nCV'nizi yüklediğinizden emin olun.",
-          );
-        }
-
-        final jobs = snapshot.data!;
-        return RefreshIndicator(
-          onRefresh: () async => _refreshJobs(),
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: jobs.length,
-            itemBuilder: (context, index) {
-              final job = jobs[index];
-              return JobCard(
-                job: job,
-                isRecommended: true, // Skor halkasını göster
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => JobDetailScreen(jobId: job.id),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildAllJobsTab() {
-    return FutureBuilder<List<Job>>(
-      future: _allJobsFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        } else if (snapshot.hasError) {
-          return Center(child: Text('Hata: ${snapshot.error}'));
-        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return _buildEmptyState("Şu an aktif iş ilanı bulunmuyor.");
-        }
-
-        final jobs = snapshot.data!;
-        return RefreshIndicator(
-          onRefresh: () async => _refreshJobs(),
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: jobs.length,
-            itemBuilder: (context, index) {
-              final job = jobs[index];
-              return JobCard(
-                job: job,
-                isRecommended: false, // Skor halkasını gizle
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => JobDetailScreen(jobId: job.id),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildEmptyState(String message) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.work_off_outlined, size: 64, color: Colors.grey[300]),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey[600], fontSize: 16),
+          // --- TAB 1: ÖNERİLENLER (Şehir Filtreli) ---
+          Column(
+            children: [
+              // ŞEHİR FİLTRESİ
+              Container(
+                height: 60,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                color: Colors.white,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _locations.length,
+                  itemBuilder: (context, index) {
+                    final loc = _locations[index];
+                    final isSelected = _selectedLocation == loc;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: ChoiceChip(
+                        label: Text(loc),
+                        selected: isSelected,
+                        onSelected: (bool selected) {
+                          setState(() {
+                            _selectedLocation = loc;
+                          });
+                        },
+                        selectedColor: Theme.of(
+                          context,
+                        ).primaryColor.withOpacity(0.2),
+                        labelStyle: TextStyle(
+                          color: isSelected
+                              ? Theme.of(context).primaryColor
+                              : Colors.black,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              // LİSTE
+              Expanded(
+                child: FutureBuilder<List<RecommendedJob>>(
+                  future: _fetchRecommended(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    } else if (snapshot.hasError) {
+                      return Center(child: Text("Error: ${snapshot.error}"));
+                    } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.location_off,
+                              size: 64,
+                              color: Colors.grey[300],
+                            ),
+                            const SizedBox(height: 16),
+                            Text("No matches found in $_selectedLocation"),
+                          ],
+                        ),
+                      );
+                    }
+
+                    final jobs = snapshot.data!;
+                    return ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: jobs.length,
+                      itemBuilder: (context, index) {
+                        final job = jobs[index];
+                        return JobCard(
+                          job: job,
+                          isRecommended: true,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    JobDetailScreen(jobId: job.id),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+
+          // --- TAB 2: TÜM İLANLAR (Aramalı) ---
+          Column(
+            children: [
+              // ARAMA ÇUBUĞU
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.all(16),
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: "Search jobs ",
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.arrow_forward),
+                      onPressed: _performSearch, // Ok tuşuna basınca ara
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey[100],
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: 0,
+                      horizontal: 16,
+                    ),
+                  ),
+                  onSubmitted: (_) =>
+                      _performSearch(), // Klavyeden Enter'a basınca ara
+                ),
+              ),
+
+              // LİSTE
+              Expanded(
+                child: FutureBuilder<List<Job>>(
+                  future: _fetchAllJobs(), // Arama parametresiyle çağırır
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                      return const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.search_off,
+                              size: 64,
+                              color: Colors.grey,
+                            ),
+                            SizedBox(height: 16),
+                            Text("No jobs found matching your search."),
+                          ],
+                        ),
+                      );
+                    }
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: snapshot.data!.length,
+                      itemBuilder: (context, index) {
+                        final job = snapshot.data![index];
+                        return JobCard(
+                          job: job,
+                          // Skor varsa göster
+                          isRecommended:
+                              (job.matchScore != null && job.matchScore! > 0),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    JobDetailScreen(jobId: job.id),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         ],
       ),

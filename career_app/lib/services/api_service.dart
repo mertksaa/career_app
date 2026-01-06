@@ -243,7 +243,7 @@ class ApiService {
   }
 
   String getApplicantCvUrl(int applicantUserId, {String? timestamp}) {
-    String url = '$_baseUrl/users/$applicantUserId/cv';
+    String url = '$_baseUrl/users/$applicantUserId/cv_download';
 
     if (timestamp != null) {
       url += '?v=$timestamp';
@@ -252,10 +252,19 @@ class ApiService {
     return url;
   }
 
-  Future<List<RecommendedJob>> getRecommendedJobs(String token) async {
+  Future<List<RecommendedJob>> getRecommendedJobs(
+    String token, {
+    String? location,
+  }) async {
     try {
+      // URL oluştururken parametre ekle
+      var uri = Uri.parse('$_baseUrl/jobs/recommended');
+      if (location != null && location != "All") {
+        uri = uri.replace(queryParameters: {'location': location});
+      }
+
       final response = await http.get(
-        Uri.parse('$_baseUrl/jobs/recommended'),
+        uri,
         headers: {'Authorization': 'Bearer $token'},
       );
 
@@ -263,15 +272,10 @@ class ApiService {
         final List<dynamic> jobsJson = jsonDecode(
           utf8.decode(response.bodyBytes),
         );
-        // Boş liste gelirse (CV yoksa veya eşleşme yoksa)
-        if (jobsJson.isEmpty) {
-          return [];
-        }
+        if (jobsJson.isEmpty) return [];
         return jobsJson.map((json) => RecommendedJob.fromJson(json)).toList();
-      } else {
-        print('Failed to load recommended jobs: ${response.body}');
-        return [];
       }
+      return [];
     } catch (e) {
       print('GetRecommendedJobs Error: $e');
       return [];
@@ -357,8 +361,13 @@ class ApiService {
   Future<List<Job>> getMyJobs(String token) async {
     try {
       final response = await http.get(
-        Uri.parse('$_baseUrl/employer/me/jobs'),
-        headers: {'Authorization': 'Bearer $token'},
+        Uri.parse(
+          '$_baseUrl/users/me/jobs',
+        ), // Backend'e eklediğimiz yeni adres
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
       );
 
       if (response.statusCode == 200) {
@@ -367,11 +376,11 @@ class ApiService {
         );
         return jobsJson.map((json) => Job.fromJson(json)).toList();
       } else {
-        print('Failed to load my jobs: ${response.body}');
+        print("GetMyJobs Error: ${response.statusCode} - ${response.body}");
         return [];
       }
     } catch (e) {
-      print('GetMyJobs Error: $e');
+      print('GetMyJobs Connection Error: $e');
       return [];
     }
   }

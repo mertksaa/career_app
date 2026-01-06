@@ -6,7 +6,7 @@ import '../providers/auth_provider.dart';
 import '../providers/snackbar_provider.dart'; // Snackbar provider'ı import et
 import './job_seeker/job_list_screen.dart';
 import './job_seeker/favorites_screen.dart';
-import './job_seeker/applications_screen.dart';
+import 'job_seeker/my_applications_screen.dart';
 import './profile_screen.dart';
 import './employer/my_jobs_screen.dart';
 import './employer/create_job_screen.dart';
@@ -49,7 +49,7 @@ class _MainNavScreenState extends State<MainNavScreen> {
     _jobSeekerPages = [
       const JobListScreen(),
       const FavoritesScreen(),
-      const ApplicationsScreen(),
+      const MyApplicationsScreen(),
       const ProfileScreen(),
     ];
 
@@ -59,13 +59,6 @@ class _MainNavScreenState extends State<MainNavScreen> {
       const ProfileScreen(),
     ];
   }
-
-  // Bu fonksiyona artık provider üzerinden erişeceğiz
-  // void _onItemTapped(int index) {
-  //   setState(() {
-  //     _selectedIndex = index;
-  //   });
-  // }
 
   // İş Arayan için alt navigasyon barları
   final List<BottomNavigationBarItem> _jobSeekerItems = [
