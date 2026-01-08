@@ -450,4 +450,42 @@ class ApiService {
       return [];
     }
   }
+
+  Future<Map<String, dynamic>> deleteCv(String token) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/users/me/cv'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      return _handleResponse(response);
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error'};
+    }
+  }
+
+  // Manuel Profil Güncelleme
+  Future<Map<String, dynamic>> updateProfileManual(
+    String token,
+    String title,
+    String skills,
+    String summary,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/users/me/profile_manual'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'title': title,
+          'skills': skills,
+          'summary': summary,
+        }),
+      );
+      return _handleResponse(response);
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error'};
+    }
+  }
 }

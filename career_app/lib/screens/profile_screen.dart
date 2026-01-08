@@ -1,177 +1,273 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../providers/auth_provider.dart';
+import '../../services/api_service.dart';
+import 'auth_screen.dart';
 import 'package:file_picker/file_picker.dart';
-import '../providers/auth_provider.dart';
-import '../services/api_service.dart';
+import 'job_seeker/edit_profile_manual_screen.dart'; // <-- BİRAZDAN OLUŞTURACAĞIZ
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
-  Future<void> _pickAndUploadCv(BuildContext context) async {
-    final scaffold = ScaffoldMessenger.of(context);
-    final auth = Provider.of<AuthProvider>(context, listen: false);
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
 
+class _ProfileScreenState extends State<ProfileScreen> {
+  bool _hasCv = false;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkCvStatus();
+  }
+
+  void _checkCvStatus() async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    bool status = await ApiService().getCvStatus(auth.token!);
+    setState(() {
+      _hasCv = status;
+    });
+  }
+
+  // PDF Yükleme
+  void _uploadCv() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
     );
 
     if (result != null) {
-      String? filePath = result.files.single.path;
-      if (filePath != null) {
-        scaffold.showSnackBar(
-          const SnackBar(content: Text('Uploading CV... Please wait.')),
-        );
-        final response = await ApiService().uploadCv(auth.token!, filePath);
+      setState(() => _isLoading = true);
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final response = await ApiService().uploadCv(
+        auth.token!,
+        result.files.single.path!,
+      );
 
-        if (response['success']) {
-          auth.setCvStatus(true);
-          scaffold.showSnackBar(
-            const SnackBar(
-              content: Text(
-                'CV uploaded successfully! Recommendations are being updated.',
-              ),
+      setState(() => _isLoading = false);
+
+      if (response['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("CV Uploaded Successfully!")),
+        );
+        _checkCvStatus();
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(response['message'])));
+      }
+    }
+  }
+
+  // CV Silme (Uyarı ile)
+  void _deleteCv() async {
+    // 1. Uyarı Dialogu
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete CV?"),
+        content: const Text(
+          "Warning: If you delete your CV, your previous applications might be cancelled or employers won't be able to view your details.\n\nAre you sure?",
+          style: TextStyle(color: Colors.red),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              "Delete",
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
             ),
-          );
-        } else {
-          scaffold.showSnackBar(SnackBar(content: Text(response['message'])));
-        }
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() => _isLoading = true);
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final response = await ApiService().deleteCv(auth.token!);
+
+      setState(() => _isLoading = false);
+
+      if (response['success'] == true) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("CV Deleted.")));
+        _checkCvStatus();
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(response['message'])));
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Burada 'listen: true' (varsayılan) kalmalı ki profil bilgileri güncellensin
     final auth = Provider.of<AuthProvider>(context);
-    final user = auth.user;
 
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text(
+          "My Profile",
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.red),
+            onPressed: () {
+              auth.logout();
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const AuthScreen()),
+                (route) => false,
+              );
+            },
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            const SizedBox(height: 20),
-            CircleAvatar(
+            const CircleAvatar(
               radius: 50,
-              backgroundColor: Theme.of(context).primaryColor,
-              child: Text(
-                user?.email.substring(0, 1).toUpperCase() ?? "U",
-                style: const TextStyle(
-                  fontSize: 40,
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              backgroundColor: Colors.blue,
+              child: Icon(Icons.person, size: 60, color: Colors.white),
             ),
             const SizedBox(height: 16),
             Text(
-              user?.email ?? "No Email",
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              auth.user?.email ?? "User",
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            Text(
-              user?.role == 'employer'
-                  ? "Employer Account"
-                  : "Job Seeker Account",
-              style: const TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 32),
 
-            if (user?.role == 'job_seeker') ...[
-              _buildProfileOption(
-                context,
-                icon: Icons.upload_file,
-                title: "Upload New CV",
-                subtitle: auth.hasCv
-                    ? "You have an active CV"
-                    : "No CV uploaded yet",
-                onTap: () => _pickAndUploadCv(context),
-                isHighlight: !auth.hasCv,
+            // --- CV BÖLÜMÜ ---
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey.shade200),
               ),
-              const SizedBox(height: 16),
-            ],
+              child: Column(
+                children: [
+                  const Text(
+                    "CV & Resume",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
 
-            // --- GÜVENLİ ÇIKIŞ BUTONU ---
-            _buildProfileOption(
-              context,
-              icon: Icons.logout,
-              title: "Log Out",
-              subtitle: "Sign out from your account",
-              onTap: () async {
-                // 1. Dinlemeyen (listen: false) bir provider örneği al
-                final authProvider = Provider.of<AuthProvider>(
-                  context,
-                  listen: false,
-                );
+                  if (_isLoading)
+                    const CircularProgressIndicator()
+                  else if (_hasCv)
+                    Column(
+                      children: [
+                        const Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                          size: 50,
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          "CV Uploaded",
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // Değiştir Butonu
+                            OutlinedButton.icon(
+                              onPressed: _uploadCv,
+                              icon: const Icon(Icons.upload_file),
+                              label: const Text("Replace"),
+                            ),
+                            const SizedBox(width: 12),
+                            // Sil Butonu (YENİ)
+                            OutlinedButton.icon(
+                              onPressed: _deleteCv,
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              label: const Text(
+                                "Delete",
+                                style: TextStyle(color: Colors.red),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.red),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    )
+                  else
+                    Column(
+                      children: [
+                        const Text(
+                          "No CV found. Upload a PDF or fill the manual form.",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _uploadCv,
+                          icon: const Icon(Icons.upload_file),
+                          label: const Text("Upload PDF CV"),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 12,
+                            ),
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
 
-                // 2. Çıkış işleminin bitmesini bekle
-                await authProvider.logout();
+            const SizedBox(height: 24),
 
-                // 3. Ekran hala açıksa güvenli yönlendirme yap
-                if (context.mounted) {
-                  Navigator.of(
+            // --- MANUEL PROFİL FORMU BUTONU (YENİ) ---
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
                     context,
-                  ).pushNamedAndRemoveUntil('/auth', (route) => false);
-                }
-              },
-              isDestructive: true,
+                    MaterialPageRoute(
+                      builder: (context) => const EditProfileManualScreen(),
+                    ),
+                  ).then((_) => _checkCvStatus()); // Dönünce durumu kontrol et
+                },
+                icon: const Icon(Icons.edit_note),
+                label: const Text("Create/Edit Manual Profile (No PDF)"),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildProfileOption(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    bool isDestructive = false,
-    bool isHighlight = false,
-  }) {
-    return Card(
-      elevation: 0,
-      color: isHighlight
-          ? Theme.of(context).primaryColor.withOpacity(0.05)
-          : Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: isHighlight
-            ? BorderSide(color: Theme.of(context).primaryColor)
-            : BorderSide.none,
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        leading: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: isDestructive
-                ? Colors.red.withOpacity(0.1)
-                : Theme.of(context).primaryColor.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(
-            icon,
-            color: isDestructive ? Colors.red : Theme.of(context).primaryColor,
-          ),
-        ),
-        title: Text(
-          title,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: isDestructive ? Colors.red : Colors.black87,
-          ),
-        ),
-        subtitle: Text(subtitle),
-        trailing: const Icon(
-          Icons.arrow_forward_ios,
-          size: 16,
-          color: Colors.grey,
-        ),
-        onTap: onTap,
       ),
     );
   }

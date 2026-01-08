@@ -1,58 +1,39 @@
-[
-    "Python",
-    "Java",
-    "JavaScript",
-    "TypeScript",
-    "Flutter",
-    "Dart",
-    "React",
-    "React Native",
-    "Vue.js",
-    "Angular",
-    "Node.js",
-    "FastAPI",
-    "Django",
-    "Flask",
-    "Spring Boot",
-    "C#",
-    ".NET",
-    "Go",
-    "Kotlin",
-    "Swift",
-    "SQL",
-    "NoSQL",
-    "PostgreSQL",
-    "MySQL",
-    "MongoDB",
-    "Firebase",
-    "AWS",
-    "Azure",
-    "Google Cloud",
-    "GCP",
-    "Docker",
-    "Kubernetes",
-    "Terraform",
-    "Git",
-    "Jenkins",
-    "CI/CD",
-    "Linux",
-    "Scrum",
-    "Agile",
-    "Jira",
-    "Project Management",
-    "Machine Learning",
-    "Deep Learning",
-    "TensorFlow",
-    "PyTorch",
-    "Keras",
-    "Scikit-learn",
-    "Pandas",
-    "NumPy",
-    "Data Analysis",
-    "Natural Language Processing",
-    "NLP",
-    "Computer Vision",
-    "REST API",
-    "GraphQL",
-    "Microservices"
-]
+{
+  "IT & Software": [
+    "Python", "Java", "C++", "C#", "JavaScript", "TypeScript", "React", "Angular", "Vue", "Node.js", 
+    "Django", "Flask", "Spring Boot", "SQL", "PostgreSQL", "MySQL", "MongoDB", "Redis", "AWS", "Azure", 
+    "Google Cloud", "Docker", "Kubernetes", "Git", "CI/CD", "Linux", "Agile", "Scrum", "Jira", 
+    "Machine Learning", "Data Science", "TensorFlow", "PyTorch", "NLP", "Computer Vision", "Cybersecurity", 
+    "Network Security", "HTML", "CSS", "SASS", "Bootstrap", "Tailwind", "Swift", "Kotlin", "Flutter", "React Native"
+  ],
+  "Business & Finance": [
+    "Accounting", "Bookkeeping", "Financial Analysis", "Auditing", "Taxation", "Budgeting", "Forecasting", 
+    "Excel", "SAP", "QuickBooks", "Oracle", "Risk Management", "Investment Banking", "Portfolio Management", 
+    "Compliance", "Reporting", "Payroll", "Accounts Payable", "Accounts Receivable"
+  ],
+  "Sales & Marketing": [
+    "SEO", "SEM", "Google Analytics", "Content Marketing", "Social Media Management", "Email Marketing", 
+    "Copywriting", "Salesforce", "HubSpot", "CRM", "Lead Generation", "Cold Calling", "Negotiation", 
+    "B2B Sales", "B2C Sales", "Account Management", "Brand Strategy", "Public Relations", "Market Research", 
+    "Digital Marketing", "Advertising", "Campaign Management"
+  ],
+  "Engineering & Manufacturing": [
+    "AutoCAD", "SolidWorks", "MATLAB", "CATIA", "Ansys", "Project Management", "Six Sigma", "Lean Manufacturing", 
+    "Quality Control", "Civil Engineering", "Mechanical Engineering", "Electrical Engineering", "PCB Design", 
+    "PLC Programming", "SCADA", "Maintenance", "HVAC", "Robotics", "3D Printing"
+  ],
+  "Service & Blue Collar": [
+    "Driving License", "Truck Driving", "Forklift", "Welding", "Plumbing", "Carpentry", "Electrician", 
+    "Construction", "Painting", "Cleaning", "Security", "Cooking", "Chef", "Bartending", "Waiting Staff", 
+    "Customer Service", "Cashier", "Inventory Management", "Warehouse Operations", "Logistics", "Delivery", 
+    "Repair", "Maintenance"
+  ],
+  "Healthcare": [
+    "Nursing", "Patient Care", "Medical Coding", "Emergency Room", "Surgery", "Pharmacy", "Laboratory", 
+    "Radiology", "Pediatrics", "Psychology", "Therapy", "Healthcare Management", "First Aid", "CPR Certified"
+  ],
+  "Education & HR": [
+    "Teaching", "Curriculum Design", "Training", "E-learning", "Recruiting", "Talent Acquisition", 
+    "Employee Relations", "Onboarding", "HRIS", "Performance Management", "Coaching", "Leadership"
+  ]
+}

@@ -6,9 +6,6 @@ import '../../models/job_model.dart';
 import '../../models/recommended_job_model.dart';
 import '../../widgets/job_card.dart';
 import 'job_detail_screen.dart';
-import 'favorites_screen.dart';
-import 'my_applications_screen.dart';
-import '../auth_screen.dart';
 
 class JobListScreen extends StatefulWidget {
   const JobListScreen({super.key});
@@ -21,7 +18,7 @@ class _JobListScreenState extends State<JobListScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-  // -- FİLTRELEME DEĞİŞKENLERİ --
+  // -- FİLTRELEME --
   String _selectedLocation = "All";
   final List<String> _locations = [
     "All",
@@ -34,9 +31,9 @@ class _JobListScreenState extends State<JobListScreen>
     "Berlin",
   ];
 
-  // -- ARAMA DEĞİŞKENLERİ --
+  // -- ARAMA --
   final TextEditingController _searchController = TextEditingController();
-  String? _currentSearchQuery; // API'ye gönderilecek olan kelime
+  String? _currentSearchQuery;
 
   @override
   void initState() {
@@ -51,7 +48,7 @@ class _JobListScreenState extends State<JobListScreen>
     super.dispose();
   }
 
-  // Önerilenleri Çek
+  // API Çağrıları
   Future<List<RecommendedJob>> _fetchRecommended() async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     return ApiService().getRecommendedJobs(
@@ -60,19 +57,13 @@ class _JobListScreenState extends State<JobListScreen>
     );
   }
 
-  // Tüm İlanları Çek (Aramalı)
   Future<List<Job>> _fetchAllJobs() async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    return ApiService().getJobs(
-      auth.token!,
-      searchQuery: _currentSearchQuery, // Arama kelimesini buraya gönderiyoruz
-    );
+    return ApiService().getJobs(auth.token!, searchQuery: _currentSearchQuery);
   }
 
-  // Arama işlemini tetikleyen fonksiyon
   void _performSearch() {
     setState(() {
-      // Eğer kutu boşsa null yap ki tümünü getirsin
       _currentSearchQuery = _searchController.text.trim().isEmpty
           ? null
           : _searchController.text.trim();
@@ -83,20 +74,24 @@ class _JobListScreenState extends State<JobListScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
+      // --- DÜZELTME BURADA: Tek ve Temiz AppBar ---
       appBar: AppBar(
         title: const Text(
-          "Job Listings",
+          "Job Postings",
           style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.white,
         elevation: 0,
+        centerTitle: false, // Sola yaslı
         bottom: TabBar(
           controller: _tabController,
           labelColor: Theme.of(context).primaryColor,
           unselectedLabelColor: Colors.grey,
           indicatorColor: Theme.of(context).primaryColor,
+          indicatorWeight: 3,
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
           tabs: const [
-            Tab(text: "Recommended For You"),
+            Tab(text: "Recommended"),
             Tab(text: "All Jobs"),
           ],
         ),
@@ -104,10 +99,10 @@ class _JobListScreenState extends State<JobListScreen>
       body: TabBarView(
         controller: _tabController,
         children: [
-          // --- TAB 1: ÖNERİLENLER (Şehir Filtreli) ---
+          // --- TAB 1: ÖNERİLENLER ---
           Column(
             children: [
-              // ŞEHİR FİLTRESİ
+              // Şehir Filtresi Çubuğu
               Container(
                 height: 60,
                 padding: const EdgeInsets.symmetric(vertical: 10),
@@ -125,9 +120,7 @@ class _JobListScreenState extends State<JobListScreen>
                         label: Text(loc),
                         selected: isSelected,
                         onSelected: (bool selected) {
-                          setState(() {
-                            _selectedLocation = loc;
-                          });
+                          setState(() => _selectedLocation = loc);
                         },
                         selectedColor: Theme.of(
                           context,
@@ -140,58 +133,43 @@ class _JobListScreenState extends State<JobListScreen>
                               ? FontWeight.bold
                               : FontWeight.normal,
                         ),
+                        backgroundColor: Colors.grey[100],
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          side: BorderSide.none,
+                        ),
                       ),
                     );
                   },
                 ),
               ),
-
-              // LİSTE
               Expanded(
                 child: FutureBuilder<List<RecommendedJob>>(
                   future: _fetchRecommended(),
                   builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
+                    if (snapshot.connectionState == ConnectionState.waiting)
                       return const Center(child: CircularProgressIndicator());
-                    } else if (snapshot.hasError) {
-                      return Center(child: Text("Error: ${snapshot.error}"));
-                    } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.location_off,
-                              size: 64,
-                              color: Colors.grey[300],
-                            ),
-                            const SizedBox(height: 16),
-                            Text("No matches found in $_selectedLocation"),
-                          ],
-                        ),
+                    if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                      return _buildEmptyState(
+                        Icons.location_off,
+                        "No matches found in $_selectedLocation",
                       );
                     }
-
-                    final jobs = snapshot.data!;
                     return ListView.builder(
                       padding: const EdgeInsets.all(16),
-                      itemCount: jobs.length,
-                      itemBuilder: (context, index) {
-                        final job = jobs[index];
-                        return JobCard(
-                          job: job,
-                          isRecommended: true,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    JobDetailScreen(jobId: job.id),
-                              ),
-                            );
-                          },
-                        );
-                      },
+                      itemCount: snapshot.data!.length,
+                      itemBuilder: (context, index) => JobCard(
+                        job: snapshot.data![index],
+                        isRecommended: true,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => JobDetailScreen(
+                              jobId: snapshot.data![index].id,
+                            ),
+                          ),
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -199,21 +177,21 @@ class _JobListScreenState extends State<JobListScreen>
             ],
           ),
 
-          // --- TAB 2: TÜM İLANLAR (Aramalı) ---
+          // --- TAB 2: TÜM İLANLAR ---
           Column(
             children: [
-              // ARAMA ÇUBUĞU
+              // Arama Kutusu
               Container(
                 color: Colors.white,
                 padding: const EdgeInsets.all(16),
                 child: TextField(
                   controller: _searchController,
                   decoration: InputDecoration(
-                    hintText: "Search jobs ",
-                    prefixIcon: const Icon(Icons.search),
+                    hintText: "Search jobs (e.g. Frontend)...",
+                    prefixIcon: const Icon(Icons.search, color: Colors.grey),
                     suffixIcon: IconButton(
                       icon: const Icon(Icons.arrow_forward),
-                      onPressed: _performSearch, // Ok tuşuna basınca ara
+                      onPressed: _performSearch,
                     ),
                     filled: true,
                     fillColor: Colors.grey[100],
@@ -221,67 +199,62 @@ class _JobListScreenState extends State<JobListScreen>
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
                     ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      vertical: 0,
-                      horizontal: 16,
-                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                   ),
-                  onSubmitted: (_) =>
-                      _performSearch(), // Klavyeden Enter'a basınca ara
+                  onSubmitted: (_) => _performSearch(),
                 ),
               ),
-
-              // LİSTE
               Expanded(
                 child: FutureBuilder<List<Job>>(
-                  future: _fetchAllJobs(), // Arama parametresiyle çağırır
+                  future: _fetchAllJobs(),
                   builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
+                    if (snapshot.connectionState == ConnectionState.waiting)
                       return const Center(child: CircularProgressIndicator());
-                    }
                     if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                      return const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.search_off,
-                              size: 64,
-                              color: Colors.grey,
-                            ),
-                            SizedBox(height: 16),
-                            Text("No jobs found matching your search."),
-                          ],
-                        ),
+                      return _buildEmptyState(
+                        Icons.search_off,
+                        "No jobs found.",
                       );
                     }
-
                     return ListView.builder(
                       padding: const EdgeInsets.all(16),
                       itemCount: snapshot.data!.length,
-                      itemBuilder: (context, index) {
-                        final job = snapshot.data![index];
-                        return JobCard(
-                          job: job,
-                          // Skor varsa göster
-                          isRecommended:
-                              (job.matchScore != null && job.matchScore! > 0),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    JobDetailScreen(jobId: job.id),
-                              ),
-                            );
-                          },
-                        );
-                      },
+                      itemBuilder: (context, index) => JobCard(
+                        job: snapshot.data![index],
+                        // Skor varsa göster (0'dan büyükse)
+                        isRecommended:
+                            (snapshot.data![index].matchScore != null &&
+                            snapshot.data![index].matchScore! > 0),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => JobDetailScreen(
+                              jobId: snapshot.data![index].id,
+                            ),
+                          ),
+                        ),
+                      ),
                     );
                   },
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(IconData icon, String message) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 64, color: Colors.grey[300]),
+          const SizedBox(height: 16),
+          Text(
+            message,
+            style: TextStyle(color: Colors.grey[600], fontSize: 16),
           ),
         ],
       ),

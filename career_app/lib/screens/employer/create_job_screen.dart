@@ -1,158 +1,175 @@
-// lib/screens/employer/create_job_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
 import '../../providers/auth_provider.dart';
-import '../../providers/snackbar_provider.dart';
 import '../../services/api_service.dart';
-import '../main_nav_screen.dart';
 
 class CreateJobScreen extends StatefulWidget {
-  const CreateJobScreen({Key? key}) : super(key: key);
+  const CreateJobScreen({super.key});
 
   @override
-  _CreateJobScreenState createState() => _CreateJobScreenState();
+  State<CreateJobScreen> createState() => _CreateJobScreenState();
 }
 
 class _CreateJobScreenState extends State<CreateJobScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
-  final _locationController = TextEditingController();
-  final _companyController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _locationController = TextEditingController();
+  final _companyController =
+      TextEditingController(); // İşveren şirket adını değiştirebilir
   bool _isLoading = false;
 
   @override
   void dispose() {
     _titleController.dispose();
+    _descriptionController.dispose();
     _locationController.dispose();
     _companyController.dispose();
-    _descriptionController.dispose();
     super.dispose();
   }
 
-  Future<void> _submitForm() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-    setState(() {
-      _isLoading = true;
-    });
+  void _submit() async {
+    if (!_formKey.currentState!.validate()) return;
 
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final apiService = ApiService();
+    setState(() => _isLoading = true);
+    final auth = Provider.of<AuthProvider>(context, listen: false);
 
-    final response = await apiService.createJob(
-      authProvider.token!,
+    final response = await ApiService().createJob(
+      auth.token!,
       _titleController.text,
       _descriptionController.text,
       _locationController.text,
       _companyController.text,
     );
 
-    if (!mounted) return;
+    setState(() => _isLoading = false);
 
-    setState(() {
-      _isLoading = false;
-    });
-
-    // HATA DÜZELTMESİ: '.show' -> '.showSnackbar' olarak değiştirildi
-    Provider.of<SnackbarProvider>(
-      context,
-      listen: false,
-    ).showSnackbar(response['message'], isError: !response['success']);
-
-    if (response['success']) {
-      // Formu temizle
-      _formKey.currentState?.reset();
-      _titleController.clear();
-      _locationController.clear();
-      _companyController.clear();
-      _descriptionController.clear();
-
-      // Kullanıcıyı 'İlanlarım' sekmesine yönlendir (index 0)
-      Provider.of<MainNavProvider>(context, listen: false).goToTab(0);
+    if (mounted) {
+      if (response['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Job Posted Successfully!")),
+        );
+        // Formu temizle
+        _titleController.clear();
+        _descriptionController.clear();
+        _locationController.clear();
+        _companyController.clear();
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(response['message'] ?? "Error")));
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
+      // --- DÜZELTME: Kendi AppBar'ını ekledik ---
+      appBar: AppBar(
+        title: const Text(
+          "Publish a Job",
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: false,
+      ),
       body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildTextFormField(
-                  controller: _titleController,
-                  labelText: 'Job Title',
-                  icon: Icons.title,
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Job Details",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
+
+              // Title
+              TextFormField(
+                controller: _titleController,
+                decoration: const InputDecoration(
+                  labelText: "Job Title",
+                  hintText: "e.g. Senior Flutter Developer",
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.work_outline),
                 ),
-                const SizedBox(height: 16),
-                _buildTextFormField(
-                  controller: _companyController,
-                  labelText: 'Company Title',
-                  icon: Icons.business,
+                validator: (v) => v!.isEmpty ? "Title is required" : null,
+              ),
+              const SizedBox(height: 16),
+
+              // Company
+              TextFormField(
+                controller: _companyController,
+                decoration: const InputDecoration(
+                  labelText: "Company Name",
+                  hintText: "e.g. Tech Solutions Inc.",
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.business),
                 ),
-                const SizedBox(height: 16),
-                _buildTextFormField(
-                  controller: _locationController,
-                  labelText: 'Location',
-                  icon: Icons.location_on,
+                validator: (v) => v!.isEmpty ? "Company is required" : null,
+              ),
+              const SizedBox(height: 16),
+
+              // Location
+              TextFormField(
+                controller: _locationController,
+                decoration: const InputDecoration(
+                  labelText: "Location",
+                  hintText: "e.g. Remote, New York, Istanbul",
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.location_on_outlined),
                 ),
-                const SizedBox(height: 16),
-                _buildTextFormField(
-                  controller: _descriptionController,
-                  labelText: 'Job Description and Requirements',
-                  icon: Icons.description,
-                  maxLines: 8,
+                validator: (v) => v!.isEmpty ? "Location is required" : null,
+              ),
+              const SizedBox(height: 16),
+
+              // Description
+              TextFormField(
+                controller: _descriptionController,
+                maxLines: 6,
+                decoration: const InputDecoration(
+                  labelText: "Job Description",
+                  hintText: "Describe the role, requirements and benefits...",
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
                 ),
-                const SizedBox(height: 24),
-                _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : ElevatedButton.icon(
-                        onPressed: _submitForm,
-                        icon: const Icon(Icons.publish),
-                        label: const Text('Publish Job'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                validator: (v) => v!.isEmpty ? "Description is required" : null,
+              ),
+              const SizedBox(height: 32),
+
+              // Submit Button
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _submit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text(
+                          "Publish Job",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                      ),
-              ],
-            ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildTextFormField({
-    required TextEditingController controller,
-    required String labelText,
-    required IconData icon,
-    int maxLines = 1,
-  }) {
-    return TextFormField(
-      controller: controller,
-      decoration: InputDecoration(
-        labelText: labelText,
-        prefixIcon: Icon(icon),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        alignLabelWithHint: maxLines > 1,
-      ),
-      maxLines: maxLines,
-      validator: (value) {
-        if (value == null || value.trim().isEmpty) {
-          return 'This field cannot be left blank.';
-        }
-        return null;
-      },
     );
   }
 }

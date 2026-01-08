@@ -106,8 +106,6 @@ class _AuthScreenState extends State<AuthScreen> {
                         ),
                         const SizedBox(height: 20),
                         TextFormField(
-                          initialValue:
-                              "employer@test.com", // Test için kolaylık (istersen sil)
                           decoration: const InputDecoration(
                             labelText: 'Email Address',
                             prefixIcon: Icon(Icons.email_outlined),
@@ -121,7 +119,6 @@ class _AuthScreenState extends State<AuthScreen> {
                         ),
                         const SizedBox(height: 16),
                         TextFormField(
-                          initialValue: "123456", // Test için kolaylık
                           decoration: const InputDecoration(
                             labelText: 'Password',
                             prefixIcon: Icon(Icons.lock_outline),
